@@ -1,30 +1,7 @@
-# Docker Compose versión 3.8 (versión obsoleta removida)
+# Docker Compose versión 3.8
 
 services:
-  # Base de datos MongoDB
-  mongodb:
-    image: mongo:7.0
-    container_name: routerapp_mongodb
-    restart: unless-stopped
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: admin123
-      MONGO_INITDB_DATABASE: router_app_ww_production
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
-      - ./mongo-init:/docker-entrypoint-initdb.d
-    networks:
-      - routerapp_network
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-  # Aplicación Node.js
+  # Aplicación Node.js (Backend)
   backend:
     build:
       context: .
@@ -32,15 +9,12 @@ services:
     container_name: routerapp_backend
     restart: unless-stopped
     ports:
-      - "3005:3005"  # Puerto local 3005 -> contenedor 3005
+      - "3005:3005"
     env_file:
       - .env
     environment:
       - JWT_SECRET=tu-jwt-secret-super-seguro-para-produccion
       - JWT_EXPIRES_IN=24h
-    depends_on:
-      mongodb:
-        condition: service_healthy
     networks:
       - routerapp_network
     volumes:
@@ -52,7 +26,7 @@ services:
       retries: 3
       start_period: 40s
 
-  # MongoDB Express (Interfaz web para MongoDB) - Opcional
+  # Mongo Express (opcional)
   mongo-express:
     image: mongo-express:1.0.0
     container_name: routerapp_mongo_express
@@ -60,21 +34,13 @@ services:
     ports:
       - "8081:8081"
     environment:
-      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
-      ME_CONFIG_MONGODB_ADMINPASSWORD: admin123
-      ME_CONFIG_MONGODB_URL: mongodb://admin:admin123@mongodb:27017/
+      ME_CONFIG_MONGODB_ADMINUSERNAME: darwinadministradortotaldeladb
+      ME_CONFIG_MONGODB_ADMINPASSWORD: contramaseguradelmundomundialisimo
+      ME_CONFIG_MONGODB_URL: mongodb://darwinadministradortotaldeladb:contramaseguradelmundomundialisimo@18.191.163.61:27017/
       ME_CONFIG_BASICAUTH_USERNAME: admin
       ME_CONFIG_BASICAUTH_PASSWORD: admin123
-    depends_on:
-      mongodb:
-        condition: service_healthy
     networks:
       - routerapp_network
-
-# Volúmenes persistentes
-volumes:
-  mongodb_data:
-    driver: local
 
 networks:
   routerapp_network:
