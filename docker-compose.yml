@@ -76,11 +76,6 @@ volumes:
   mongodb_data:
     driver: local
 
-# Red personalizada
 networks:
   routerapp_network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 192.168.101.0/24  # Red específica para la aplicación
-          gateway: 192.168.101.1
