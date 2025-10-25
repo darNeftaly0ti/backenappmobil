@@ -78,22 +78,6 @@ const activityLogSchema = new Schema<IActivityLog>({
   type: {
     type: String,
     required: [true, 'El tipo de acción es requerido'],
-    enum: [
-      'change_pass',        // Cambio de contraseña
-      'device_manage',      // Gestión de dispositivos
-      'network_config',     // Configuración de red
-      'wifi_settings',      // Configuración WiFi
-      'user_profile',       // Perfil de usuario
-      'system_access',      // Acceso al sistema
-      'support_ticket',     // Tickets de soporte
-      'router_config',      // Configuración del router
-      'security_settings',  // Configuración de seguridad
-      'backup_restore',     // Respaldo y restauración
-      'auth_actions',       // Acciones de autenticación
-      'device_connection',  // Conexión de dispositivos
-      'network_monitoring', // Monitoreo de red
-      'system_maintenance'  // Mantenimiento del sistema
-    ],
     index: true,
     trim: true
   },

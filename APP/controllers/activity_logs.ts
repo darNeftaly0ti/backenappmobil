@@ -67,20 +67,7 @@ export class ActivityLogController {
         return;
       }
 
-      // Validar que el tipo de acción sea válido
-      const validTypes = [
-        'change_pass', 'device_manage', 'network_config', 'wifi_settings',
-        'user_profile', 'system_access', 'support_ticket', 'router_config',
-        'security_settings', 'backup_restore', 'auth_actions', 'device_connection',
-        'network_monitoring', 'system_maintenance'
-      ];
-      if (!validTypes.includes(type)) {
-        res.status(400).json({
-          success: false,
-          message: 'Tipo de acción no válido. Tipos permitidos: ' + validTypes.join(', ')
-        });
-        return;
-      }
+      // El campo type ahora acepta cualquier valor
 
       // Crear el log de actividad
       const activityLog = await activityLogService.createActivityLog({
