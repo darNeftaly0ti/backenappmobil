@@ -7,10 +7,25 @@ interface ISmartOLTResponse {
   response: any; // Array o objeto con datos de ONUs
 }
 
+// Interface para la información de la ONU
+interface IONUInfo {
+  status: any;
+  name: any;
+  model: any;
+  serial: any;
+  mac: any;
+  pon_port: any;
+  olt_id: any;
+  zone: any;
+  details: any; // Todos los demás campos de la ONU
+}
+
 // Interface para la respuesta del consumo de SmartOLT
 export interface IConsumptionData {
   onu_sn: string;
-  consumption: any; // La estructura exacta depende de la respuesta de SmartOLT
+  onu_id: any;
+  onu_info: IONUInfo;
+  traffic: any; // Datos de tráfico/consumo de SmartOLT
   timestamp: Date;
   from_cache?: boolean; // Indica si los datos vienen del caché
 }
@@ -147,6 +162,9 @@ export class SmartOLTService {
       // Configurar URL base del API de SmartOLT (ya incluye /api si está en .env)
       const smartOLTBaseUrl = this.configData.smartOLT.baseUrl || 'https://conectatayd.smartolt.com/api';
       
+      // PASO 1: Localizar la ONU específica usando su ONU_sn (serial number)
+      // Objetivo: Obtener el onu_id necesario para consultar el consumo
+      // Endpoint: GET /api/onu/get_all_onus_details
       // Construir endpoint con filtros para reducir el consumo de API
       // Si tenemos filtros disponibles (olt_id, board, port, zone), los usamos
       // La URL base ya incluye /api, solo agregamos el path del endpoint
@@ -218,14 +236,15 @@ export class SmartOLTService {
           const cached = this.cache.get(onuSn);
           if (cached && (Date.now() - cached.timestamp) < this.cacheTimeout) {
             console.log('Usando datos en caché para evitar límite de rate');
+            // Retornar datos del caché con la misma estructura, marcando que viene del caché
+            const cachedData = {
+              ...cached.data,
+              timestamp: new Date(cached.timestamp),
+              from_cache: true
+            };
             return {
               success: true,
-              data: {
-                onu_sn: onuSn,
-                consumption: cached.data,
-                timestamp: new Date(cached.timestamp),
-                from_cache: true
-              },
+              data: cachedData,
               message: 'Consumo obtenido desde caché (límite de API alcanzado)'
             };
           }
@@ -385,7 +404,9 @@ export class SmartOLTService {
 
       console.log('Obteniendo datos de tráfico/consumo para ONU ID:', onuId);
 
-      // Hacer segunda petición para obtener el tráfico/consumo real
+      // PASO 2: Obtener los datos de consumo/tráfico de la ONU usando su onu_id
+      // Endpoint: GET /api/onu/traffic_graph/{onu_id}
+      // Este endpoint retorna los datos de consumo/tráfico de la ONU específica
       const trafficEndpoint = `${smartOLTBaseUrl}/onu/traffic_graph/${onuId}`;
       console.log('  - Endpoint de tráfico:', trafficEndpoint);
 
@@ -420,9 +441,30 @@ export class SmartOLTService {
       }
 
       // Retornar los datos combinados: información de la ONU + datos de tráfico/consumo
+      // Estructura mejorada para mejor accesibilidad
       const consumptionData = {
-        onu_info: onu, // Información completa de la ONU
-        traffic: trafficData // Datos de tráfico/consumo
+        // Información básica de la ONU
+        onu_sn: onuSn,
+        onu_id: onuId,
+        // Información detallada de la ONU (campos principales)
+        onu_info: {
+          status: onu.status,
+          name: onu.name || onu.custom_name || null,
+          model: onu.model || null,
+          serial: onu.sn || onu.serial_number || onu.serial,
+          mac: onu.mac || null,
+          pon_port: onu.pon_port || null,
+          olt_id: onu.olt_id || null,
+          zone: onu.zone || null,
+          // Incluir todos los demás campos de la ONU
+          details: onu
+        },
+        // Datos de tráfico/consumo
+        traffic: trafficData,
+        // Timestamp de la consulta
+        timestamp: new Date(),
+        // Indicador si viene del caché
+        from_cache: false
       };
 
       // Guardar en caché para evitar futuras peticiones si se alcanza el límite
@@ -436,11 +478,7 @@ export class SmartOLTService {
 
       return {
         success: true,
-        data: {
-          onu_sn: onuSn,
-          consumption: consumptionData,
-          timestamp: new Date()
-        },
+        data: consumptionData,
         message: 'Consumo obtenido exitosamente'
       };
 
