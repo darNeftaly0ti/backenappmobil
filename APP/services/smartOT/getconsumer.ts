@@ -12,6 +12,7 @@ export interface IConsumptionData {
   onu_sn: string;
   consumption: any; // La estructura exacta depende de la respuesta de SmartOLT
   timestamp: Date;
+  from_cache?: boolean; // Indica si los datos vienen del caché
 }
 
 // Interface para el resultado del servicio
@@ -25,9 +26,13 @@ export interface IConsumptionResult {
 export class SmartOLTService {
   private static instance: SmartOLTService;
   private configData: ReturnType<typeof config>;
+  private cache: Map<string, { data: any; timestamp: number }>;
+  private cacheTimeout: number; // Tiempo en milisegundos (5 minutos por defecto)
 
   private constructor() {
     this.configData = config();
+    this.cache = new Map();
+    this.cacheTimeout = 5 * 60 * 1000; // 5 minutos en cache
   }
 
   public static getInstance(): SmartOLTService {
@@ -35,6 +40,27 @@ export class SmartOLTService {
       SmartOLTService.instance = new SmartOLTService();
     }
     return SmartOLTService.instance;
+  }
+
+  /**
+   * Limpiar caché antiguo
+   */
+  private cleanOldCache(): void {
+    const now = Date.now();
+    const maxAge = 10 * 60 * 1000; // 10 minutos
+
+    for (const [key, value] of this.cache.entries()) {
+      if (now - value.timestamp > maxAge) {
+        this.cache.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Limpiar todo el caché manualmente
+   */
+  public clearCache(): void {
+    this.cache.clear();
   }
 
   /**
@@ -130,11 +156,43 @@ export class SmartOLTService {
       console.log('  - Status Text:', response.statusText);
 
       if (!response.ok) {
-        const errorText = await response.text();
+        let errorData: any = {};
+        try {
+          const errorText = await response.text();
+          errorData = JSON.parse(errorText);
+        } catch (e) {
+          // Si no es JSON, usar el texto como error
+          errorData = { error: 'Error desconocido' };
+        }
+
         console.error('❌ Error en respuesta de SmartOLT:');
         console.error('  - Status:', response.status);
-        console.error('  - Error completo:', errorText);
-        
+        console.error('  - Error completo:', JSON.stringify(errorData));
+
+        // Manejo específico de error 403 (límite de rate alcanzado)
+        if (response.status === 403) {
+          // Intentar usar caché si existe
+          const cached = this.cache.get(onuSn);
+          if (cached && (Date.now() - cached.timestamp) < this.cacheTimeout) {
+            console.log('📦 Usando datos en caché para evitar límite de rate');
+            return {
+              success: true,
+              data: {
+                onu_sn: onuSn,
+                consumption: cached.data,
+                timestamp: new Date(cached.timestamp),
+                from_cache: true
+              },
+              message: 'Consumo obtenido desde caché (límite de API alcanzado)'
+            };
+          }
+
+          return {
+            success: false,
+            message: `Límite de peticiones horario de SmartOLT alcanzado. Error: ${errorData.error || 'Forbidden'}. Intenta nuevamente más tarde.`
+          };
+        }
+
         if (response.status === 404) {
           return {
             success: false,
@@ -151,7 +209,7 @@ export class SmartOLTService {
 
         return {
           success: false,
-          message: `Error al consultar SmartOLT: ${response.status} ${response.statusText}`
+          message: `Error al consultar SmartOLT: ${response.status} ${response.statusText}. ${errorData.error || ''}`
         };
       }
 
@@ -228,28 +286,32 @@ export class SmartOLTService {
       if (!onu) {
         console.log('⚠️ ONU no encontrada en la lista. Serial buscado:', onuSn);
         console.log('📋 Primeros 3 ONUs encontrados:', onusList.slice(0, 3).map((o: any) => ({
-          sn: o.sn,
-          unique_external_id: o.unique_external_id,
-          serial_number: o.serial_number,
-          serial: o.serial,
-          ONU_sn: o.ONU_sn,
+          serial: o.serial_number || o.serial || o.sn || o.ONU_sn,
           keys: Object.keys(o)
         })));
         return {
           success: false,
-          message: `ONU con serial '${onuSn}' no encontrada en SmartOLT. Total de ONUs en respuesta: ${onusList.length}`
+          message: 'ONU no encontrada en SmartOLT'
         };
       }
 
       console.log('✅ ONU encontrada:', {
-        sn: onu.sn,
-        unique_external_id: onu.unique_external_id,
-        olt_id: onu.olt_id,
-        pon_type: onu.pon_type
+        serial: onu.serial_number || onu.serial || onu.sn,
+        id: onu.id,
+        status: onu.status
       });
 
       // Retornar los datos de la ONU encontrada (incluye consumo, tráfico, etc.)
       const consumptionData = onu;
+
+      // Guardar en caché para evitar futuras peticiones si se alcanza el límite
+      this.cache.set(onuSn, {
+        data: consumptionData,
+        timestamp: Date.now()
+      });
+
+      // Limpiar caché antiguo (más de 10 minutos)
+      this.cleanOldCache();
 
       return {
         success: true,
