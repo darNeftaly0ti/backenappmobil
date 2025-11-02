@@ -12,6 +12,7 @@ export interface IUser extends Document {
   phone_number: string;
   password: string;
   account_status: string;
+  ONU_sn: string;
   plan: {
     name: string;
     speed_mbps: number;
@@ -122,6 +123,13 @@ const userSchema = new Schema<IUser>({
     type: String,
     enum: ['ACTIVE', 'INACTIVE', 'SUSPENDED'],
     default: 'ACTIVE'
+  },
+  ONU_sn: {
+    type: String,
+    required: false,
+    unique: true,
+    sparse: true,
+    trim: true
   },
   plan: {
     name: String,

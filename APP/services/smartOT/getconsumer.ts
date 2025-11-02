@@ -49,9 +49,19 @@ export class SmartOLTService {
       }
 
       // Obtener el ONU_sn del usuario (campo "ONU_sn" de la colección user)
-      const onuSn = (user as any).ONU_sn;
+      // Convertir el documento de Mongoose a objeto plano para acceder a todos los campos
+      const userObj = user.toObject ? user.toObject() : user;
+      const onuSn = (userObj as any).ONU_sn || (userObj as any).onu_sn;
 
-      if (!onuSn || onuSn.trim() === '') {
+      // Debug: Log para verificar qué campos tiene el usuario
+      console.log('Usuario encontrado:', {
+        id: user._id,
+        username: user.username,
+        onuSn: onuSn,
+        allFields: Object.keys(userObj)
+      });
+
+      if (!onuSn || (typeof onuSn === 'string' && onuSn.trim() === '')) {
         return {
           success: false,
           message: 'El usuario no tiene un ONU_sn registrado'
