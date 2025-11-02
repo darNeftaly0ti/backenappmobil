@@ -172,7 +172,7 @@ export class SmartOLTService {
       }
       
       // Logs detallados para debug
-      console.log('🔍 Consultando SmartOLT:');
+      console.log('Consultando SmartOLT:');
       console.log('  - ONU_sn buscado:', onuSn);
       console.log('  - URL base:', smartOLTBaseUrl);
       console.log('  - Filtros aplicados:', {
@@ -194,7 +194,7 @@ export class SmartOLTService {
         }
       });
 
-      console.log('📥 Respuesta de SmartOLT:');
+      console.log('Respuesta de SmartOLT:');
       console.log('  - Status:', response.status);
       console.log('  - Status Text:', response.statusText);
 
@@ -208,7 +208,7 @@ export class SmartOLTService {
           errorData = { error: 'Error desconocido' };
         }
 
-        console.error('❌ Error en respuesta de SmartOLT:');
+        console.error('Error en respuesta de SmartOLT:');
         console.error('  - Status:', response.status);
         console.error('  - Error completo:', JSON.stringify(errorData));
 
@@ -217,7 +217,7 @@ export class SmartOLTService {
           // Intentar usar caché si existe
           const cached = this.cache.get(onuSn);
           if (cached && (Date.now() - cached.timestamp) < this.cacheTimeout) {
-            console.log('📦 Usando datos en caché para evitar límite de rate');
+            console.log('Usando datos en caché para evitar límite de rate');
             return {
               success: true,
               data: {
@@ -262,14 +262,14 @@ export class SmartOLTService {
         responseData = await response.json();
       } catch (error) {
         const textResponse = await response.text();
-        console.error('❌ Error al parsear JSON de SmartOLT:', textResponse);
+        console.error('Error al parsear JSON de SmartOLT:', textResponse);
         return {
           success: false,
           message: `Error al parsear respuesta de SmartOLT: ${textResponse.substring(0, 200)}`
         };
       }
       
-      console.log('📊 Estructura de respuesta recibida:', {
+      console.log('Estructura de respuesta recibida:', {
         hasStatus: 'status' in responseData,
         status: responseData.status,
         hasResponse: 'response' in responseData,
@@ -306,7 +306,7 @@ export class SmartOLTService {
           isArray: Array.isArray(responseData)
         };
         
-        console.error('⚠️ Formato de respuesta desconocido:', JSON.stringify(errorDetails));
+        console.error('Formato de respuesta desconocido:', JSON.stringify(errorDetails));
         
         return {
           success: false,
@@ -314,11 +314,11 @@ export class SmartOLTService {
         };
       }
       
-      console.log(`📋 Total de ONUs encontradas en respuesta (filtradas): ${onusList.length}`);
+      console.log(`Total de ONUs encontradas en respuesta (filtradas): ${onusList.length}`);
 
       // Buscar la ONU específica por serial number en la respuesta filtrada
       // Según los logs anteriores, SmartOLT usa el campo 'sn' para el serial number
-      console.log('🔎 Buscando ONU con serial:', onuSn);
+      console.log('Buscando ONU con serial:', onuSn);
       
       const onu = onusList.find((onuItem: any) => {
         // Intentar múltiples campos posibles para el serial number
@@ -330,12 +330,17 @@ export class SmartOLTService {
           onuItem.unique_external_id === onuSn;
         
         if (matches) {
-          console.log('✅ Coincidencia encontrada en campo:', {
+          console.log('Coincidencia encontrada en campo:', {
             sn: onuItem.sn,
             serial_number: onuItem.serial_number,
             serial: onuItem.serial,
             ONU_sn: onuItem.ONU_sn,
-            unique_external_id: onuItem.unique_external_id
+            unique_external_id: onuItem.unique_external_id,
+            // Mostrar posibles campos de ID
+            id: onuItem.id,
+            onu_id: onuItem.onu_id,
+            unique_id: onuItem.unique_id,
+            allKeys: Object.keys(onuItem)
           });
         }
         
@@ -343,8 +348,8 @@ export class SmartOLTService {
       });
 
       if (!onu) {
-        console.log('⚠️ ONU no encontrada en la lista. Serial buscado:', onuSn);
-        console.log('📋 Primeros 3 ONUs encontrados:', onusList.slice(0, 3).map((o: any) => ({
+        console.log('ONU no encontrada en la lista. Serial buscado:', onuSn);
+        console.log('Primeros 3 ONUs encontrados:', onusList.slice(0, 3).map((o: any) => ({
           serial: o.serial_number || o.serial || o.sn || o.ONU_sn,
           keys: Object.keys(o)
         })));
@@ -354,14 +359,71 @@ export class SmartOLTService {
         };
       }
 
-      console.log('✅ ONU encontrada:', {
+      console.log('ONU encontrada:', {
         serial: onu.serial_number || onu.serial || onu.sn,
-        id: onu.id,
+        onu_id: onu.id || onu.onu_id || onu.unique_id,
         status: onu.status
       });
 
-      // Retornar los datos de la ONU encontrada (incluye consumo, tráfico, etc.)
-      const consumptionData = onu;
+      // Obtener el onu_id para consultar el endpoint de tráfico/consumo
+      // Revisar múltiples campos posibles donde pueda estar el ID
+      const onuId = onu.id || 
+                    onu.onu_id || 
+                    onu.unique_id || 
+                    onu.unique_external_id || 
+                    onu.external_id ||
+                    onu.onu_unique_id ||
+                    onu.onu_external_id;
+      
+      if (!onuId) {
+        console.error('ONU encontrada pero no tiene ID válido:', onu);
+        return {
+          success: false,
+          message: 'ONU encontrada pero no se pudo obtener su ID para consultar el consumo'
+        };
+      }
+
+      console.log('Obteniendo datos de tráfico/consumo para ONU ID:', onuId);
+
+      // Hacer segunda petición para obtener el tráfico/consumo real
+      const trafficEndpoint = `${smartOLTBaseUrl}/onu/traffic_graph/${onuId}`;
+      console.log('  - Endpoint de tráfico:', trafficEndpoint);
+
+      const trafficResponse = await fetch(trafficEndpoint, {
+        method: 'GET',
+        headers: {
+          'X-Token': apiKey,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      });
+
+      console.log('Respuesta de tráfico SmartOLT:');
+      console.log('  - Status:', trafficResponse.status);
+      console.log('  - Status Text:', trafficResponse.statusText);
+
+      let trafficData: any = null;
+
+      if (trafficResponse.ok) {
+        try {
+          const trafficResponseData = await trafficResponse.json();
+          console.log('Datos de tráfico obtenidos exitosamente');
+          trafficData = trafficResponseData;
+        } catch (error) {
+          console.error('Error al parsear datos de tráfico:', error);
+          // Continuar con datos de la ONU aunque no tengamos tráfico
+        }
+      } else {
+        const errorText = await trafficResponse.text();
+        console.error('Error al obtener tráfico:', trafficResponse.status, errorText);
+        // Continuar con datos de la ONU aunque no tengamos tráfico
+      }
+
+      // Retornar los datos combinados: información de la ONU + datos de tráfico/consumo
+      const consumptionData = {
+        onu_info: onu, // Información completa de la ONU
+        traffic: trafficData // Datos de tráfico/consumo
+      };
 
       // Guardar en caché para evitar futuras peticiones si se alcanza el límite
       this.cache.set(onuSn, {
