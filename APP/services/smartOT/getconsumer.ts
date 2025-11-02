@@ -435,41 +435,83 @@ export class SmartOLTService {
       // PASO 2: Obtener los datos de consumo/tráfico de la ONU usando su onu_id
       // Endpoint: GET /api/onu/traffic_graph/{onu_id}
       // Este endpoint retorna los datos de consumo/tráfico de la ONU específica
-      // Nota: El onu_id puede ser un ID numérico o un formato compuesto
-      const trafficEndpoint = `${smartOLTBaseUrl}/onu/traffic_graph/${onuId}`;
-      console.log('  - Endpoint de tráfico:', trafficEndpoint);
-
-      // Intentar primero con GET, si falla probar con POST
-      let trafficResponse = await fetch(trafficEndpoint, {
-        method: 'GET',
-        headers: {
-          'X-Token': apiKey,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
+      // Nota: SmartOLT puede requerir diferentes formatos del ID
+      
+      let trafficData: any = null;
+      let trafficResponse: Response | null = null;
+      
+      // Intentar múltiples formatos del endpoint y del ID
+      // Opción 1: Usar unique_external_id directamente
+      if (onu.unique_external_id) {
+        const trafficEndpoint1 = `${smartOLTBaseUrl}/onu/traffic_graph/${onu.unique_external_id}`;
+        console.log('Intentando endpoint con unique_external_id:', trafficEndpoint1);
+        
+        trafficResponse = await fetch(trafficEndpoint1, {
+          method: 'GET',
+          headers: {
+            'X-Token': apiKey,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          }
+        });
+        
+        if (trafficResponse.ok) {
+          console.log('Éxito usando unique_external_id');
+        } else {
+          console.log('Falló con unique_external_id, status:', trafficResponse.status);
         }
-      });
-
-      // Si el método GET falla con 405, intentar con POST y parámetros en el body
-      if (trafficResponse.status === 405) {
-        console.log('GET falló con 405, intentando con POST y parámetros');
+      }
+      
+      // Opción 2: Usar el formato compuesto como query parameters
+      if (!trafficResponse || !trafficResponse.ok) {
+        const trafficEndpoint2 = `${smartOLTBaseUrl}/onu/traffic_graph`;
+        const queryParams: string[] = [];
         
-        // Construir el body con los parámetros necesarios
-        const requestBody: any = {
-          olt_id: onu.olt_id,
-          onu_id: onuId
-        };
+        if (onu.olt_id) queryParams.push(`olt_id=${encodeURIComponent(onu.olt_id)}`);
+        if (onu.board !== undefined) queryParams.push(`board=${onu.board}`);
+        if (onu.port !== undefined) queryParams.push(`port=${onu.port}`);
+        if (onu.onu !== undefined) queryParams.push(`onu=${onu.onu}`);
+        if (onu.unique_external_id) queryParams.push(`onu_id=${encodeURIComponent(onu.unique_external_id)}`);
         
-        // Si tenemos board, port, onu, agregarlos
-        if (onu.board !== undefined) requestBody.board = onu.board;
-        if (onu.port !== undefined) requestBody.port = onu.port;
-        if (onu.onu !== undefined) requestBody.onu = onu.onu;
+        const endpointWithParams = queryParams.length > 0 
+          ? `${trafficEndpoint2}?${queryParams.join('&')}`
+          : trafficEndpoint2;
         
-        // También intentar con el unique_external_id si es diferente
-        if (onu.unique_external_id && onu.unique_external_id !== onuId) {
-          requestBody.unique_external_id = onu.unique_external_id;
+        console.log('Intentando endpoint con query parameters:', endpointWithParams);
+        
+        trafficResponse = await fetch(endpointWithParams, {
+          method: 'GET',
+          headers: {
+            'X-Token': apiKey,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          }
+        });
+        
+        if (trafficResponse.ok) {
+          console.log('Éxito usando query parameters');
+        } else {
+          console.log('Falló con query parameters, status:', trafficResponse.status);
         }
+      }
+      
+      // Opción 3: Intentar con POST y body
+      if (!trafficResponse || !trafficResponse.ok) {
+        const trafficEndpoint3 = `${smartOLTBaseUrl}/onu/traffic_graph`;
+        console.log('Intentando con POST y body:', trafficEndpoint3);
         
-        trafficResponse = await fetch(trafficEndpoint, {
+        const requestBody: any = {};
+        
+        // Agregar parámetros que tenemos disponibles
+        if (onu.olt_id) requestBody.olt_id = onu.olt_id;
+        if (onu.board !== undefined) requestBody.board = parseInt(onu.board.toString());
+        if (onu.port !== undefined) requestBody.port = parseInt(onu.port.toString());
+        if (onu.onu !== undefined) requestBody.onu = parseInt(onu.onu.toString());
+        if (onu.unique_external_id) requestBody.onu_id = onu.unique_external_id;
+        
+        console.log('Body de la petición:', JSON.stringify(requestBody));
+        
+        trafficResponse = await fetch(trafficEndpoint3, {
           method: 'POST',
           headers: {
             'X-Token': apiKey,
@@ -479,16 +521,33 @@ export class SmartOLTService {
           body: JSON.stringify(requestBody)
         });
         
-        console.log('Respuesta POST de tráfico:', trafficResponse.status);
+        if (trafficResponse.ok) {
+          console.log('Éxito usando POST con body');
+        } else {
+          console.log('Falló con POST, status:', trafficResponse.status);
+        }
+      }
+      
+      // Opción 4: Intentar con el formato compuesto en el path
+      if (!trafficResponse || !trafficResponse.ok) {
+        const trafficEndpoint4 = `${smartOLTBaseUrl}/onu/traffic_graph/${onuId}`;
+        console.log('Último intento con formato compuesto:', trafficEndpoint4);
+        
+        trafficResponse = await fetch(trafficEndpoint4, {
+          method: 'GET',
+          headers: {
+            'X-Token': apiKey,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          }
+        });
       }
 
       console.log('Respuesta de tráfico SmartOLT:');
-      console.log('  - Status:', trafficResponse.status);
-      console.log('  - Status Text:', trafficResponse.statusText);
+      console.log('  - Status:', trafficResponse?.status);
+      console.log('  - Status Text:', trafficResponse?.statusText);
 
-      let trafficData: any = null;
-
-      if (trafficResponse.ok) {
+      if (trafficResponse && trafficResponse.ok) {
         try {
           const trafficResponseData = await trafficResponse.json();
           console.log('Datos de tráfico obtenidos exitosamente');
