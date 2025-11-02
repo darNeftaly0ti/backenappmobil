@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authController } from '../controllers/controller';
 import { activityLogController } from '../controllers/activity_logs';
+import { smartOLTController } from '../controllers/smartOLT/getconsumer';
 
 // Crear instancia del router
 const router = Router();
@@ -35,5 +36,9 @@ router.get('/activity-logs/severity/:severity', activityLogController.getActivit
 router.get('/activity-logs/search/:searchText', activityLogController.searchActivityLogs);
 router.get('/activity-logs/:id', activityLogController.getActivityLogById);
 router.post('/activity-logs/cleanup', activityLogController.deleteOldLogs);
+
+// Rutas de SmartOLT (consumo)
+router.get('/smartolt/consumption/:userId', smartOLTController.getConsumption);
+router.get('/smartolt/consumption/onu/:onuSn', smartOLTController.getConsumptionByONU);
 
 export default router;

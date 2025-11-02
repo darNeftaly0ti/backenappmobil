@@ -11,6 +11,7 @@ const userSchema = new mongoose.Schema({
   phone_number: { type: String, required: true },
   password: { type: String, required: true },
   account_status: { type: String, enum: ['ACTIVE', 'INACTIVE', 'SUSPENDED'], default: 'ACTIVE' },
+  ONU_sn: { type: String, required: true, unique: true }, // Número de serie de la ONU para consultas en SmartOLT
   
   // información del plan de internet
   plan: {
@@ -123,6 +124,7 @@ async function insertTestUser() {
       phone_number: '+502 42158057',
       password: hashedPassword,
       account_status: 'ACTIVE',
+      ONU_sn: '00:1A:2B:3C:4D:5E', // SN de ONU para SmartOLT
       
       // Información del plan de internet
       plan: {
@@ -228,8 +230,140 @@ async function insertTestUser() {
   }
 }
 
-// Ejecutar la función
-insertTestUser();
+// Función para insertar usuario de Elmer
+async function insertElmerUser() {
+  try {
+    const configData = config();
+    const mongoUri = configData.database.uri;
+    
+    if (!mongoUri) {
+      throw new Error('MONGO_URI no está definida en las variables de entorno');
+    }
+
+    // Usar la nueva base de datos router_app_ww_production
+    const dbName = 'router_app_ww_production';
+    const fullUri = mongoUri.endsWith('/') 
+      ? `${mongoUri}${dbName}` 
+      : `${mongoUri}/${dbName}`;
+
+    console.log('Conectando a la base de datos:', fullUri);
+    await mongoose.connect(fullUri);
+
+    // Verificar si el usuario ya existe por email
+    const existingUser = await User.findOne({ email: 'elmer@gmail.com' });
+    
+    if (existingUser) {
+      console.log('Usuario existente encontrado, eliminando...');
+      await User.findByIdAndDelete(existingUser._id);
+    }
+
+    // Encriptar contraseña "1234567"
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash('1234567', saltRounds);
+
+    // Crear usuario de Elmer con los datos proporcionados
+    const elmerUser = new User({
+      username: 'elmer',
+      first_name: 'Elmer',
+      last_name: 'Usuario',
+      email: 'elmer@gmail.com',
+      phone_number: '+502 00000000',
+      password: hashedPassword,
+      account_status: 'ACTIVE',
+      ONU_sn: 'GPON001FCFD0', // SN de ONU para SmartOLT
+      
+      // Información del plan de internet
+      plan: {
+        name: 'Hogar 50 Mbps',
+        speed_mbps: 50,
+        price_monthly: 299.99,
+        installation_date: new Date('2024-01-15'),
+        next_billing_date: new Date('2024-12-15')
+      },
+
+      // Datos de red local con la MAC proporcionada
+      network: {
+        router_model: 'TP-Link Archer C7',
+        router_mac: 'GPON001FCFD0',
+        router_ip: '192.168.1.1',
+        ssid: 'RouterApp_WiFi_Elmer',
+        password_hint: 'Contraseña segura',
+        public_ip: '201.123.45.68',
+        connection_type: 'fiber',
+        signal_quality: 95,
+        uptime: 720 // 30 días en horas
+      },
+
+      // Dispositivos conectados
+      devices: [
+        {
+          name: 'Dispositivo de Elmer',
+          mac_address: 'AA:BB:CC:DD:EE:01',
+          ip_address: '192.168.1.100',
+          device_type: 'phone',
+          first_seen: new Date('2024-01-15'),
+          last_seen: new Date(),
+          connection_status: 'connected',
+          bandwidth_usage_mb: 1024,
+          blocked: false,
+          signal_strength: -45
+        }
+      ],
+
+      // Historial de actividad
+      activity_log: [
+        {
+          action: 'account_created',
+          description: 'Cuenta de usuario creada exitosamente',
+          timestamp: new Date(),
+          ip_origin: '192.168.1.100'
+        }
+      ],
+
+      // Información de soporte
+      support: {
+        last_ticket_id: 0,
+        incidents_reported: 0,
+        last_contact_date: null
+      },
+
+      // Preferencias
+      preferences: {
+        notifications_enabled: true,
+        preferred_language: 'es',
+        dark_mode: false
+      },
+
+      // Control del sistema
+      created_on: new Date(),
+      updated_on: new Date(),
+      last_login: new Date(),
+      verified: true,
+      roles: ['USER'],
+      tags: ['new_user']
+    });
+
+    console.log('Guardando usuario de Elmer...');
+    await elmerUser.save();
+    console.log('✓ Usuario creado exitosamente:', elmerUser.username);
+    console.log('✓ ONU_sn:', elmerUser.ONU_sn);
+
+    await mongoose.connection.close();
+    console.log('Conexión cerrada.');
+
+  } catch (error) {
+    console.error('✗ Error al insertar usuario de Elmer:', error);
+    if (mongoose.connection.readyState === 1) {
+      await mongoose.connection.close();
+    }
+  }
+}
+
+// Ejecutar la función del usuario admin
+// insertTestUser();
+
+// Ejecutar la función del usuario Elmer
+insertElmerUser();
 
 
 //comando para insertar usuario npx ts-node proces/insertUser.ts

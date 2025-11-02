@@ -32,6 +32,11 @@ export const config = () => {
     secret: process.env.JWT_SECRET || 'tu-secret-key-super-segura',
     expiresIn: process.env.JWT_EXPIRES_IN || '1h', // Cambiado a 1 hora para desarrollo
   },
+
+  // Configuración de SmartOLT
+  smartOLT: {
+    apiKey: process.env.SMART_OILT || '',
+  },
   };
   
   
