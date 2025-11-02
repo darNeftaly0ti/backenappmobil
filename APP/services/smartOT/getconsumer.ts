@@ -156,18 +156,60 @@ export class SmartOLTService {
       }
 
       // Parsear la respuesta
-      const responseData = await response.json() as ISmartOLTResponse;
-      
-      // Verificar estructura de respuesta de SmartOLT
-      if (!responseData.status || !responseData.response) {
+      let responseData: any;
+      try {
+        responseData = await response.json();
+      } catch (error) {
+        const textResponse = await response.text();
+        console.error('❌ Error al parsear JSON de SmartOLT:', textResponse);
         return {
           success: false,
-          message: 'Formato de respuesta inválido de SmartOLT'
+          message: `Error al parsear respuesta de SmartOLT: ${textResponse.substring(0, 200)}`
         };
       }
+      
+      console.log('📊 Estructura de respuesta recibida:', {
+        hasStatus: 'status' in responseData,
+        status: responseData.status,
+        hasResponse: 'response' in responseData,
+        responseType: Array.isArray(responseData.response) ? 'array' : typeof responseData.response,
+        allKeys: Object.keys(responseData)
+      });
+      
+      // Verificar estructura de respuesta de SmartOLT (más flexible)
+      // SmartOLT puede retornar { status: true, response: [...] } o directamente un array
+      let onusList: any[] = [];
+      
+      if (responseData.status === true && responseData.response) {
+        // Formato estándar: { status: true, response: [...] }
+        onusList = Array.isArray(responseData.response) ? responseData.response : [responseData.response];
+      } else if (Array.isArray(responseData)) {
+        // Formato alternativo: respuesta directa es un array
+        onusList = responseData;
+      } else if (responseData.response && Array.isArray(responseData.response)) {
+        // Otro formato posible
+        onusList = responseData.response;
+      } else {
+        // No encontramos el formato esperado, retornar error con detalles útiles
+        const errorDetails = {
+          keys: Object.keys(responseData),
+          firstKeySample: responseData[Object.keys(responseData)[0]] ? 
+            JSON.stringify(responseData[Object.keys(responseData)[0]]).substring(0, 100) : 'null',
+          responseType: typeof responseData,
+          isArray: Array.isArray(responseData)
+        };
+        
+        console.error('⚠️ Formato de respuesta desconocido:', JSON.stringify(errorDetails));
+        
+        return {
+          success: false,
+          message: `Formato de respuesta inesperado de SmartOLT. Campos recibidos: ${Object.keys(responseData).join(', ')}. Revisa los logs del servidor para más detalles.`
+        };
+      }
+      
+      console.log(`📋 Total de ONUs encontradas en respuesta: ${onusList.length}`);
 
       // Buscar la ONU específica por serial number en la respuesta
-      const onusList = Array.isArray(responseData.response) ? responseData.response : [responseData.response];
       const onu = onusList.find((onuItem: any) => 
         onuItem.serial_number === onuSn || 
         onuItem.serial === onuSn || 
