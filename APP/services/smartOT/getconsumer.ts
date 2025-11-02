@@ -177,12 +177,18 @@ export class SmartOLTService {
       });
       
       // Verificar estructura de respuesta de SmartOLT (más flexible)
-      // SmartOLT puede retornar { status: true, response: [...] } o directamente un array
+      // SmartOLT puede retornar diferentes formatos:
+      // 1. { status: true, response: [...] }
+      // 2. { status: true, onus: [...] }  <- Formato real de SmartOLT
+      // 3. Array directo [...]
       let onusList: any[] = [];
       
       if (responseData.status === true && responseData.response) {
         // Formato estándar: { status: true, response: [...] }
         onusList = Array.isArray(responseData.response) ? responseData.response : [responseData.response];
+      } else if (responseData.status === true && responseData.onus) {
+        // Formato real de SmartOLT: { status: true, onus: [...] }
+        onusList = Array.isArray(responseData.onus) ? responseData.onus : [responseData.onus];
       } else if (Array.isArray(responseData)) {
         // Formato alternativo: respuesta directa es un array
         onusList = responseData;
@@ -210,29 +216,36 @@ export class SmartOLTService {
       console.log(`📋 Total de ONUs encontradas en respuesta: ${onusList.length}`);
 
       // Buscar la ONU específica por serial number en la respuesta
+      // Según los logs, SmartOLT usa el campo 'sn' para el serial number
       const onu = onusList.find((onuItem: any) => 
+        onuItem.sn === onuSn ||  // Campo real de SmartOLT (prioridad)
         onuItem.serial_number === onuSn || 
-        onuItem.serial === onuSn || 
-        onuItem.sn === onuSn ||
-        onuItem.ONU_sn === onuSn
+        onuItem.serial === onuSn ||
+        onuItem.ONU_sn === onuSn ||
+        onuItem.unique_external_id === onuSn  // Por si acaso
       );
 
       if (!onu) {
         console.log('⚠️ ONU no encontrada en la lista. Serial buscado:', onuSn);
         console.log('📋 Primeros 3 ONUs encontrados:', onusList.slice(0, 3).map((o: any) => ({
-          serial: o.serial_number || o.serial || o.sn || o.ONU_sn,
+          sn: o.sn,
+          unique_external_id: o.unique_external_id,
+          serial_number: o.serial_number,
+          serial: o.serial,
+          ONU_sn: o.ONU_sn,
           keys: Object.keys(o)
         })));
         return {
           success: false,
-          message: 'ONU no encontrada en SmartOLT'
+          message: `ONU con serial '${onuSn}' no encontrada en SmartOLT. Total de ONUs en respuesta: ${onusList.length}`
         };
       }
 
       console.log('✅ ONU encontrada:', {
-        serial: onu.serial_number || onu.serial || onu.sn,
-        id: onu.id,
-        status: onu.status
+        sn: onu.sn,
+        unique_external_id: onu.unique_external_id,
+        olt_id: onu.olt_id,
+        pon_type: onu.pon_type
       });
 
       // Retornar los datos de la ONU encontrada (incluye consumo, tráfico, etc.)
