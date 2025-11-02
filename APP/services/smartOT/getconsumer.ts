@@ -381,18 +381,36 @@ export class SmartOLTService {
       console.log('ONU encontrada:', {
         serial: onu.serial_number || onu.serial || onu.sn,
         onu_id: onu.id || onu.onu_id || onu.unique_id,
-        status: onu.status
+        status: onu.status,
+        olt_id: onu.olt_id,
+        board: onu.board,
+        port: onu.port,
+        onu: onu.onu
       });
 
       // Obtener el onu_id para consultar el endpoint de tráfico/consumo
       // Revisar múltiples campos posibles donde pueda estar el ID
-      const onuId = onu.id || 
-                    onu.onu_id || 
-                    onu.unique_id || 
-                    onu.unique_external_id || 
-                    onu.external_id ||
-                    onu.onu_unique_id ||
-                    onu.onu_external_id;
+      // El onu_id puede estar en diferentes formatos según SmartOLT
+      let onuId = onu.id || 
+                  onu.onu_id || 
+                  onu.unique_id;
+      
+      // Si no encontramos un ID directo, intentar construir el ID usando los campos disponibles
+      // SmartOLT puede usar un formato como: olt_id/board/port/onu
+      if (!onuId && onu.olt_id && onu.board !== undefined && onu.port !== undefined && onu.onu !== undefined) {
+        // Intentar formato compuesto: olt_id/board/port/onu
+        onuId = `${onu.olt_id}/${onu.board}/${onu.port}/${onu.onu}`;
+        console.log('Construyendo onu_id usando formato compuesto:', onuId);
+      }
+      
+      // Si aún no tenemos ID, usar unique_external_id como último recurso
+      if (!onuId) {
+        onuId = onu.unique_external_id || 
+                onu.external_id ||
+                onu.onu_unique_id ||
+                onu.onu_external_id ||
+                onu.sn; // Usar el serial como último recurso
+      }
       
       if (!onuId) {
         console.error('ONU encontrada pero no tiene ID válido:', onu);
@@ -403,14 +421,26 @@ export class SmartOLTService {
       }
 
       console.log('Obteniendo datos de tráfico/consumo para ONU ID:', onuId);
+      console.log('Campos de ONU disponibles para ID:', {
+        id: onu.id,
+        onu_id: onu.onu_id,
+        unique_id: onu.unique_id,
+        unique_external_id: onu.unique_external_id,
+        olt_id: onu.olt_id,
+        board: onu.board,
+        port: onu.port,
+        onu: onu.onu
+      });
 
       // PASO 2: Obtener los datos de consumo/tráfico de la ONU usando su onu_id
       // Endpoint: GET /api/onu/traffic_graph/{onu_id}
       // Este endpoint retorna los datos de consumo/tráfico de la ONU específica
+      // Nota: El onu_id puede ser un ID numérico o un formato compuesto
       const trafficEndpoint = `${smartOLTBaseUrl}/onu/traffic_graph/${onuId}`;
       console.log('  - Endpoint de tráfico:', trafficEndpoint);
 
-      const trafficResponse = await fetch(trafficEndpoint, {
+      // Intentar primero con GET, si falla probar con POST
+      let trafficResponse = await fetch(trafficEndpoint, {
         method: 'GET',
         headers: {
           'X-Token': apiKey,
@@ -418,6 +448,39 @@ export class SmartOLTService {
           'Accept': 'application/json'
         }
       });
+
+      // Si el método GET falla con 405, intentar con POST y parámetros en el body
+      if (trafficResponse.status === 405) {
+        console.log('GET falló con 405, intentando con POST y parámetros');
+        
+        // Construir el body con los parámetros necesarios
+        const requestBody: any = {
+          olt_id: onu.olt_id,
+          onu_id: onuId
+        };
+        
+        // Si tenemos board, port, onu, agregarlos
+        if (onu.board !== undefined) requestBody.board = onu.board;
+        if (onu.port !== undefined) requestBody.port = onu.port;
+        if (onu.onu !== undefined) requestBody.onu = onu.onu;
+        
+        // También intentar con el unique_external_id si es diferente
+        if (onu.unique_external_id && onu.unique_external_id !== onuId) {
+          requestBody.unique_external_id = onu.unique_external_id;
+        }
+        
+        trafficResponse = await fetch(trafficEndpoint, {
+          method: 'POST',
+          headers: {
+            'X-Token': apiKey,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(requestBody)
+        });
+        
+        console.log('Respuesta POST de tráfico:', trafficResponse.status);
+      }
 
       console.log('Respuesta de tráfico SmartOLT:');
       console.log('  - Status:', trafficResponse.status);
