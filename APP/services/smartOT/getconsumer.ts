@@ -1,6 +1,12 @@
 import { config } from '../../configs/config';
 import { userService } from '../services';
 
+// Interface para la respuesta de SmartOLT API
+interface ISmartOLTResponse {
+  status: boolean;
+  response: any; // Array o objeto con datos de ONUs
+}
+
 // Interface para la respuesta del consumo de SmartOLT
 export interface IConsumptionData {
   onu_sn: string;
@@ -96,23 +102,38 @@ export class SmartOLTService {
         };
       }
 
-      // TODO: Reemplazar con la URL base real del API de SmartOLT
-      // Por ahora usamos un placeholder que deberá ser configurado
-      const smartOLTBaseUrl = process.env.SMART_OLT_BASE_URL || 'https://api.smartolt.com';
-      const endpoint = `${smartOLTBaseUrl}/api/onu/${onuSn}/consumption`;
+      // Configurar URL base del API de SmartOLT
+      const smartOLTBaseUrl = process.env.SMART_OLT_BASE_URL || 'https://conectatayd.smartolt.com';
+      
+      // Endpoint para obtener detalles de ONUs - buscamos por serial number (ONU_sn)
+      // Si SmartOLT no tiene endpoint específico por SN, obtenemos todos y filtramos
+      const endpoint = `${smartOLTBaseUrl}/api/onu/get_all_onus_details`;
+      
+      // Logs detallados para debug
+      console.log('🔍 Consultando SmartOLT:');
+      console.log('  - ONU_sn:', onuSn);
+      console.log('  - URL base:', smartOLTBaseUrl);
+      console.log('  - Endpoint completo:', endpoint);
 
-      // Hacer la petición al API de SmartOLT
+      // Hacer la petición al API de SmartOLT con el formato correcto
       const response = await fetch(endpoint, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
+          'X-Token': apiKey,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
         }
       });
 
+      console.log('📥 Respuesta de SmartOLT:');
+      console.log('  - Status:', response.status);
+      console.log('  - Status Text:', response.statusText);
+
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('Error en respuesta de SmartOLT:', response.status, errorText);
+        console.error('❌ Error en respuesta de SmartOLT:');
+        console.error('  - Status:', response.status);
+        console.error('  - Error completo:', errorText);
         
         if (response.status === 404) {
           return {
@@ -135,7 +156,45 @@ export class SmartOLTService {
       }
 
       // Parsear la respuesta
-      const consumptionData = await response.json();
+      const responseData = await response.json() as ISmartOLTResponse;
+      
+      // Verificar estructura de respuesta de SmartOLT
+      if (!responseData.status || !responseData.response) {
+        return {
+          success: false,
+          message: 'Formato de respuesta inválido de SmartOLT'
+        };
+      }
+
+      // Buscar la ONU específica por serial number en la respuesta
+      const onusList = Array.isArray(responseData.response) ? responseData.response : [responseData.response];
+      const onu = onusList.find((onuItem: any) => 
+        onuItem.serial_number === onuSn || 
+        onuItem.serial === onuSn || 
+        onuItem.sn === onuSn ||
+        onuItem.ONU_sn === onuSn
+      );
+
+      if (!onu) {
+        console.log('⚠️ ONU no encontrada en la lista. Serial buscado:', onuSn);
+        console.log('📋 Primeros 3 ONUs encontrados:', onusList.slice(0, 3).map((o: any) => ({
+          serial: o.serial_number || o.serial || o.sn || o.ONU_sn,
+          keys: Object.keys(o)
+        })));
+        return {
+          success: false,
+          message: 'ONU no encontrada en SmartOLT'
+        };
+      }
+
+      console.log('✅ ONU encontrada:', {
+        serial: onu.serial_number || onu.serial || onu.sn,
+        id: onu.id,
+        status: onu.status
+      });
+
+      // Retornar los datos de la ONU encontrada (incluye consumo, tráfico, etc.)
+      const consumptionData = onu;
 
       return {
         success: true,
