@@ -12,6 +12,13 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
   account_status: { type: String, enum: ['ACTIVE', 'INACTIVE', 'SUSPENDED'], default: 'ACTIVE' },
   ONU_sn: { type: String, required: true, unique: true }, // Número de serie de la ONU para consultas en SmartOLT
+  // Campos adicionales para filtrar en SmartOLT y reducir consumo de API
+  olt_name: { type: String }, // Nombre del OLT (ej: "POAQUIL")
+  onu_port: { type: String }, // Puerto de la ONU (ej: "gpon-onu_1/6/2:2")
+  olt_id: { type: String }, // ID del OLT para filtros en SmartOLT
+  board: { type: Number }, // Número de placa/tarjeta
+  port: { type: Number }, // Número de puerto PON
+  zone: { type: String }, // Zona geográfica
   
   // información del plan de internet
   plan: {
@@ -271,6 +278,13 @@ async function insertElmerUser() {
       password: hashedPassword,
       account_status: 'ACTIVE',
       ONU_sn: 'GPON001FCFD0', // SN de ONU para SmartOLT
+      // Campos para filtrado en SmartOLT
+      olt_name: 'POAQUIL',
+      onu_port: 'gpon-onu_1/6/2:2',
+      olt_id: '1', // ID del OLT (ajustar según tu configuración)
+      board: 6, // Número de placa/tarjeta (del puerto gpon-onu_1/6/2:2)
+      port: 2, // Número de puerto PON (del puerto gpon-onu_1/6/2:2)
+      zone: 'Zone 1', // Zona (ajustar según tu configuración)
       
       // Información del plan de internet
       plan: {

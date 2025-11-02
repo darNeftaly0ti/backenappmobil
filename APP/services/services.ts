@@ -13,6 +13,13 @@ export interface IUser extends Document {
   password: string;
   account_status: string;
   ONU_sn: string;
+  // Campos adicionales para filtrar en SmartOLT
+  olt_name?: string;
+  onu_port?: string;
+  olt_id?: string;
+  board?: number;
+  port?: number;
+  zone?: string;
   plan: {
     name: string;
     speed_mbps: number;
@@ -131,6 +138,13 @@ const userSchema = new Schema<IUser>({
     sparse: true,
     trim: true
   },
+  // Campos adicionales para filtrar en SmartOLT
+  olt_name: { type: String, trim: true },
+  onu_port: { type: String, trim: true },
+  olt_id: { type: String, trim: true },
+  board: { type: Number },
+  port: { type: Number },
+  zone: { type: String, trim: true },
   plan: {
     name: String,
     speed_mbps: Number,

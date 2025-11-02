@@ -36,6 +36,7 @@ export const config = () => {
   // Configuración de SmartOLT
   smartOLT: {
     apiKey: process.env.SMART_OILT || '',
+    baseUrl: process.env.SMARTOLT_BASE_URL || 'https://conectatayd.smartolt.com/api',
   },
   };
   
