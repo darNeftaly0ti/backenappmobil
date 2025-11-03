@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authController } from '../controllers/controller';
 import { activityLogController } from '../controllers/activity_logs';
 import { smartOLTController } from '../controllers/smartOLT/getconsumer';
+import { base64PhotoController } from '../controllers/smartOLT/b64photo';
 
 // Crear instancia del router
 const router = Router();
@@ -42,5 +43,10 @@ router.post('/activity-logs/cleanup', activityLogController.deleteOldLogs);
 // Rutas de SmartOLT (consumo)
 router.get('/smartolt/consumption/:userId', smartOLTController.getConsumption);
 router.get('/smartolt/consumption/onu/:onuSn', smartOLTController.getConsumptionByONU);
+
+// Rutas de SmartOLT (conversión de imágenes a Base64)
+router.post('/smartolt/image/to-base64', base64PhotoController.convertImageToBase64); // POST /api/users/smartolt/image/to-base64
+router.get('/smartolt/image/to-base64', base64PhotoController.convertImageToBase64); // GET /api/users/smartolt/image/to-base64?imageUrl=...
+router.get('/smartolt/traffic-graph/:uniqueExternalId/to-base64', base64PhotoController.convertTrafficGraphToBase64); // GET /api/users/smartolt/traffic-graph/:uniqueExternalId/to-base64?graphType=daily
 
 export default router;
