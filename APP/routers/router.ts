@@ -7,23 +7,25 @@ import { smartOLTController } from '../controllers/smartOLT/getconsumer';
 const router = Router();
 
 // Rutas de autenticación
-router.post('/login', authController.login);
+router.post('/login', authController.login); // POST /api/users/login
 
-// Rutas de usuarios
-router.get('/users', authController.getAllUsers);
-router.get('/users/:id', authController.getUserById);
-router.get('/users/email/:email', authController.getUserByEmail);
-router.put('/users/:id', authController.updateUser);
-router.delete('/users/:id', authController.deleteUser);
-
-// Ruta de prueba para verificar que el router funciona
+// Ruta de prueba para verificar que el router funciona (debe ir antes de /:id)
 router.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
     message: 'Router funcionando correctamente',
     timestamp: new Date().toISOString()
   });
-});
+}); // GET /api/users/health
+
+// Rutas de usuarios
+// NOTA: El servidor ya tiene el prefijo '/api/users', así que estas rutas son relativas a ese prefijo
+// IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas genéricas (/:id)
+router.get('/email/:email', authController.getUserByEmail); // GET /api/users/email/:email
+router.get('/:id', authController.getUserById); // GET /api/users/:id
+router.put('/:id', authController.updateUser); // PUT /api/users/:id
+router.delete('/:id', authController.deleteUser); // DELETE /api/users/:id
+router.get('/', authController.getAllUsers); // GET /api/users (debe ir al final)
 
 // Rutas de logs de actividad
 router.post('/activity-logs', activityLogController.createActivityLog);
