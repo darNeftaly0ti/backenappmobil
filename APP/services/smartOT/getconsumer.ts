@@ -81,9 +81,10 @@ export class SmartOLTService {
   /**
    * Obtener el consumo de un usuario desde SmartOLT usando su ONU_sn
    * @param userId - ID del usuario en la base de datos
+   * @param graphType - Tipo de gráfico a obtener: 'hourly', 'daily', 'weekly', 'monthly', 'yearly' (default: 'daily')
    * @returns Resultado con los datos de consumo
    */
-  public async getConsumptionByUserId(userId: string): Promise<IConsumptionResult> {
+  public async getConsumptionByUserId(userId: string, graphType: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' = 'daily'): Promise<IConsumptionResult> {
     try {
       // Buscar el usuario en la base de datos
       const user = await userService.findUserById(userId);
@@ -125,7 +126,7 @@ export class SmartOLTService {
       }
 
       // Consultar el consumo en SmartOLT con los filtros disponibles
-      return await this.getConsumptionByONU(onuSn, filters);
+      return await this.getConsumptionByONU(onuSn, filters, graphType);
 
     } catch (error) {
       console.error('Error al obtener consumo por userId:', error);
@@ -140,6 +141,7 @@ export class SmartOLTService {
    * Obtener el consumo directamente por ONU_sn desde SmartOLT
    * @param onuSn - Número de serie de la ONU
    * @param filters - Filtros opcionales para reducir el consumo de API (olt_id, board, port, zone)
+   * @param graphType - Tipo de gráfico a obtener: 'hourly', 'daily', 'weekly', 'monthly', 'yearly' (default: 'daily')
    * @returns Resultado con los datos de consumo
    */
   public async getConsumptionByONU(onuSn: string, filters?: {
@@ -148,7 +150,7 @@ export class SmartOLTService {
     port?: number;
     zone?: string;
     olt_name?: string;
-  }): Promise<IConsumptionResult> {
+  }, graphType: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' = 'daily'): Promise<IConsumptionResult> {
     try {
       const apiKey = this.configData.smartOLT.apiKey;
 
@@ -432,134 +434,80 @@ export class SmartOLTService {
         onu: onu.onu
       });
 
-      // PASO 2: Obtener los datos de consumo/tráfico de la ONU usando su onu_id
-      // Endpoint: GET /api/onu/traffic_graph/{onu_id}
-      // Este endpoint retorna los datos de consumo/tráfico de la ONU específica
-      // Nota: SmartOLT puede requerir diferentes formatos del ID
+      // PASO 2: Obtener el gráfico de tráfico/consumo de la ONU usando su unique_external_id
+      // Endpoint correcto: GET /api/onu/get_onu_traffic_graph/{onu_external_id}/{graph_type}
+      // Este endpoint retorna una imagen PNG del gráfico de tráfico de la ONU específica
+      // graph_type puede ser: hourly, daily, weekly, monthly, yearly
       
       let trafficData: any = null;
-      let trafficResponse: Response | null = null;
+      let trafficGraphBase64: string | null = null;
       
-      // Intentar múltiples formatos del endpoint y del ID
-      // Opción 1: Usar unique_external_id directamente
-      if (onu.unique_external_id) {
-        const trafficEndpoint1 = `${smartOLTBaseUrl}/onu/traffic_graph/${onu.unique_external_id}`;
-        console.log('Intentando endpoint con unique_external_id:', trafficEndpoint1);
-        
-        trafficResponse = await fetch(trafficEndpoint1, {
-          method: 'GET',
-          headers: {
-            'X-Token': apiKey,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          }
-        });
-        
-        if (trafficResponse.ok) {
-          console.log('Éxito usando unique_external_id');
-        } else {
-          console.log('Falló con unique_external_id, status:', trafficResponse.status);
-        }
-      }
-      
-      // Opción 2: Usar el formato compuesto como query parameters
-      if (!trafficResponse || !trafficResponse.ok) {
-        const trafficEndpoint2 = `${smartOLTBaseUrl}/onu/traffic_graph`;
-        const queryParams: string[] = [];
-        
-        if (onu.olt_id) queryParams.push(`olt_id=${encodeURIComponent(onu.olt_id)}`);
-        if (onu.board !== undefined) queryParams.push(`board=${onu.board}`);
-        if (onu.port !== undefined) queryParams.push(`port=${onu.port}`);
-        if (onu.onu !== undefined) queryParams.push(`onu=${onu.onu}`);
-        if (onu.unique_external_id) queryParams.push(`onu_id=${encodeURIComponent(onu.unique_external_id)}`);
-        
-        const endpointWithParams = queryParams.length > 0 
-          ? `${trafficEndpoint2}?${queryParams.join('&')}`
-          : trafficEndpoint2;
-        
-        console.log('Intentando endpoint con query parameters:', endpointWithParams);
-        
-        trafficResponse = await fetch(endpointWithParams, {
-          method: 'GET',
-          headers: {
-            'X-Token': apiKey,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          }
-        });
-        
-        if (trafficResponse.ok) {
-          console.log('Éxito usando query parameters');
-        } else {
-          console.log('Falló con query parameters, status:', trafficResponse.status);
-        }
-      }
-      
-      // Opción 3: Intentar con POST y body
-      if (!trafficResponse || !trafficResponse.ok) {
-        const trafficEndpoint3 = `${smartOLTBaseUrl}/onu/traffic_graph`;
-        console.log('Intentando con POST y body:', trafficEndpoint3);
-        
-        const requestBody: any = {};
-        
-        // Agregar parámetros que tenemos disponibles
-        if (onu.olt_id) requestBody.olt_id = onu.olt_id;
-        if (onu.board !== undefined) requestBody.board = parseInt(onu.board.toString());
-        if (onu.port !== undefined) requestBody.port = parseInt(onu.port.toString());
-        if (onu.onu !== undefined) requestBody.onu = parseInt(onu.onu.toString());
-        if (onu.unique_external_id) requestBody.onu_id = onu.unique_external_id;
-        
-        console.log('Body de la petición:', JSON.stringify(requestBody));
-        
-        trafficResponse = await fetch(trafficEndpoint3, {
-          method: 'POST',
-          headers: {
-            'X-Token': apiKey,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify(requestBody)
-        });
-        
-        if (trafficResponse.ok) {
-          console.log('Éxito usando POST con body');
-        } else {
-          console.log('Falló con POST, status:', trafficResponse.status);
-        }
-      }
-      
-      // Opción 4: Intentar con el formato compuesto en el path
-      if (!trafficResponse || !trafficResponse.ok) {
-        const trafficEndpoint4 = `${smartOLTBaseUrl}/onu/traffic_graph/${onuId}`;
-        console.log('Último intento con formato compuesto:', trafficEndpoint4);
-        
-        trafficResponse = await fetch(trafficEndpoint4, {
-          method: 'GET',
-          headers: {
-            'X-Token': apiKey,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          }
-        });
-      }
-
-      console.log('Respuesta de tráfico SmartOLT:');
-      console.log('  - Status:', trafficResponse?.status);
-      console.log('  - Status Text:', trafficResponse?.statusText);
-
-      if (trafficResponse && trafficResponse.ok) {
-        try {
-          const trafficResponseData = await trafficResponse.json();
-          console.log('Datos de tráfico obtenidos exitosamente');
-          trafficData = trafficResponseData;
-        } catch (error) {
-          console.error('Error al parsear datos de tráfico:', error);
-          // Continuar con datos de la ONU aunque no tengamos tráfico
-        }
+      if (!onu.unique_external_id) {
+        console.error('ONU encontrada pero no tiene unique_external_id para obtener el gráfico');
       } else {
-        const errorText = await trafficResponse.text();
-        console.error('Error al obtener tráfico:', trafficResponse.status, errorText);
-        // Continuar con datos de la ONU aunque no tengamos tráfico
+        const trafficEndpoint = `${smartOLTBaseUrl}/onu/get_onu_traffic_graph/${onu.unique_external_id}/${graphType}`;
+        console.log('Obteniendo gráfico de tráfico para ONU:', {
+          unique_external_id: onu.unique_external_id,
+          graph_type: graphType,
+          endpoint: trafficEndpoint
+        });
+
+        const trafficResponse = await fetch(trafficEndpoint, {
+          method: 'GET',
+          headers: {
+            'X-Token': apiKey,
+            'Accept': 'image/png' // La respuesta es una imagen PNG
+          }
+        });
+
+        console.log('Respuesta de tráfico SmartOLT:');
+        console.log('  - Status:', trafficResponse.status);
+        console.log('  - Status Text:', trafficResponse.statusText);
+        console.log('  - Content-Type:', trafficResponse.headers.get('content-type'));
+
+        if (trafficResponse.ok) {
+          try {
+            // La respuesta es una imagen PNG, convertirla a base64 para enviarla al frontend
+            const imageBuffer = await trafficResponse.arrayBuffer();
+            const base64Image = Buffer.from(imageBuffer).toString('base64');
+            trafficGraphBase64 = `data:image/png;base64,${base64Image}`;
+            
+            // También almacenar metadatos del gráfico
+            trafficData = {
+              graph_type: graphType,
+              unique_external_id: onu.unique_external_id,
+              image_base64: trafficGraphBase64,
+              content_type: 'image/png',
+              // URL directa para usar en el frontend si prefieren
+              image_url: trafficEndpoint // El frontend puede usar esta URL directamente con el header X-Token
+            };
+            
+            console.log('Gráfico de tráfico obtenido exitosamente');
+          } catch (error) {
+            console.error('Error al procesar imagen de tráfico:', error);
+            // Continuar con datos de la ONU aunque no tengamos el gráfico
+          }
+        } else {
+          let errorText = '';
+          try {
+            errorText = await trafficResponse.text();
+            console.error('Error al obtener tráfico:', trafficResponse.status, errorText);
+            
+            // Manejar errores específicos según la documentación de SmartOLT
+            if (trafficResponse.status === 400) {
+              if (errorText.includes('no ONU external ID')) {
+                console.error('Error: No se proporcionó el ONU external ID');
+              } else if (errorText.includes('no ONU was found')) {
+                console.error('Error: ONU no encontrada para el external ID proporcionado');
+              } else if (errorText.includes('doesn\'t have traffic graph yet')) {
+                console.error('Error: La ONU aún no tiene gráfico de tráfico generado');
+              }
+            }
+          } catch (e) {
+            console.error('Error al leer respuesta de error:', e);
+          }
+          // Continuar con datos de la ONU aunque no tengamos el gráfico
+        }
       }
 
       // Retornar los datos combinados: información de la ONU + datos de tráfico/consumo

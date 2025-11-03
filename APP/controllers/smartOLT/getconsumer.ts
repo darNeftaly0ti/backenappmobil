@@ -30,8 +30,15 @@ export class SmartOLTController {
         return;
       }
 
+      // Obtener el tipo de gráfico desde query params (default: 'daily')
+      const graphType = (req.query.graphType as 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly') || 'daily';
+      
+      // Validar que el graphType sea válido
+      const validGraphTypes = ['hourly', 'daily', 'weekly', 'monthly', 'yearly'];
+      const finalGraphType = validGraphTypes.includes(graphType) ? graphType : 'daily';
+
       // Consultar el consumo usando el servicio
-      const result = await smartOLTService.getConsumptionByUserId(userId.trim());
+      const result = await smartOLTService.getConsumptionByUserId(userId.trim(), finalGraphType);
 
       if (result.success) {
         // Éxito: retornar los datos de consumo
@@ -89,8 +96,15 @@ export class SmartOLTController {
         return;
       }
 
+      // Obtener el tipo de gráfico desde query params (default: 'daily')
+      const graphType = (req.query.graphType as 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly') || 'daily';
+      
+      // Validar que el graphType sea válido
+      const validGraphTypes = ['hourly', 'daily', 'weekly', 'monthly', 'yearly'];
+      const finalGraphType = validGraphTypes.includes(graphType) ? graphType : 'daily';
+
       // Consultar el consumo directamente por ONU_sn usando el servicio
-      const result = await smartOLTService.getConsumptionByONU(onuSn.trim());
+      const result = await smartOLTService.getConsumptionByONU(onuSn.trim(), undefined, finalGraphType);
 
       if (result.success) {
         // Éxito: retornar los datos de consumo

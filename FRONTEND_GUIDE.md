@@ -4,12 +4,29 @@
 
 ### 1. Obtener consumo por User ID
 ```
-GET /api/smartolt/consumption/:userId
+GET /api/smartolt/consumption/:userId?graphType={tipo}
+```
+
+**Parámetros de Query:**
+- `graphType` (opcional): Tipo de gráfico a obtener. Valores: `hourly`, `daily`, `weekly`, `monthly`, `yearly`. Default: `daily`
+
+**Ejemplo:**
+```
+GET /api/smartolt/consumption/:userId?graphType=daily
+GET /api/smartolt/consumption/:userId?graphType=hourly
 ```
 
 ### 2. Obtener consumo por ONU Serial Number
 ```
-GET /api/smartolt/consumption/onu/:onuSn
+GET /api/smartolt/consumption/onu/:onuSn?graphType={tipo}
+```
+
+**Parámetros de Query:**
+- `graphType` (opcional): Tipo de gráfico a obtener. Valores: `hourly`, `daily`, `weekly`, `monthly`, `yearly`. Default: `daily`
+
+**Ejemplo:**
+```
+GET /api/smartolt/consumption/onu/:onuSn?graphType=weekly
 ```
 
 ---
@@ -39,13 +56,11 @@ GET /api/smartolt/consumption/onu/:onuSn
       }
     },
     "traffic": {
-      // Datos de tráfico/consumo de SmartOLT
-      // Estructura depende de la respuesta del API de SmartOLT
-      // Puede incluir:
-      // - download: bytes descargados
-      // - upload: bytes subidos
-      // - graphs: datos para gráficos
-      // - timestamps: fechas de los datos
+      "graph_type": "daily",
+      "unique_external_id": "GPON001FCFD0",
+      "image_base64": "data:image/png;base64,iVBORw0KGgoAAAANS...",
+      "content_type": "image/png",
+      "image_url": "https://conectatayd.smartolt.com/api/onu/get_onu_traffic_graph/GPON001FCFD0/daily"
     },
     "timestamp": "2024-01-15T10:30:00.000Z",
     "from_cache": false
@@ -70,9 +85,10 @@ GET /api/smartolt/consumption/onu/:onuSn
 
 ```javascript
 // Función para obtener consumo por User ID
-async function getConsumptionByUserId(userId) {
+async function getConsumptionByUserId(userId, graphType = 'daily') {
   try {
-    const response = await fetch(`/api/smartolt/consumption/${userId}`, {
+    const url = `/api/smartolt/consumption/${userId}${graphType ? `?graphType=${graphType}` : ''}`;
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -95,9 +111,10 @@ async function getConsumptionByUserId(userId) {
 }
 
 // Función para obtener consumo por ONU Serial Number
-async function getConsumptionByONU(onuSn) {
+async function getConsumptionByONU(onuSn, graphType = 'daily') {
   try {
-    const response = await fetch(`/api/smartolt/consumption/onu/${onuSn}`, {
+    const url = `/api/smartolt/consumption/onu/${onuSn}${graphType ? `?graphType=${graphType}` : ''}`;
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -120,7 +137,8 @@ async function getConsumptionByONU(onuSn) {
 // Uso en un componente React/Vue/etc.
 async function mostrarConsumo() {
   try {
-    const datos = await getConsumptionByUserId('user123');
+    // Obtener gráfico diario (default)
+    const datos = await getConsumptionByUserId('user123', 'daily');
     
     // Acceder a los datos
     console.log('Serial Number:', datos.onu_sn);
@@ -128,7 +146,13 @@ async function mostrarConsumo() {
     console.log('Estado:', datos.onu_info.status);
     console.log('Nombre:', datos.onu_info.name);
     console.log('Modelo:', datos.onu_info.model);
-    console.log('Datos de tráfico:', datos.traffic);
+    
+    // Mostrar el gráfico de tráfico
+    if (datos.traffic && datos.traffic.image_base64) {
+      // La imagen está en base64, puedes usarla directamente en un <img>
+      console.log('Gráfico disponible:', datos.traffic.graph_type);
+      console.log('URL de la imagen:', datos.traffic.image_url);
+    }
     
   } catch (error) {
     console.error('Error:', error.message);
@@ -142,9 +166,11 @@ async function mostrarConsumo() {
 import axios from 'axios';
 
 // Obtener consumo por User ID
-async function getConsumptionByUserId(userId) {
+async function getConsumptionByUserId(userId, graphType = 'daily') {
   try {
-    const response = await axios.get(`/api/smartolt/consumption/${userId}`);
+    const url = `/api/smartolt/consumption/${userId}`;
+    const params = graphType ? { graphType } : {};
+    const response = await axios.get(url, { params });
     return response.data.data;
   } catch (error) {
     console.error('Error al obtener consumo:', error.response?.data?.message || error.message);
@@ -153,9 +179,11 @@ async function getConsumptionByUserId(userId) {
 }
 
 // Obtener consumo por ONU Serial Number
-async function getConsumptionByONU(onuSn) {
+async function getConsumptionByONU(onuSn, graphType = 'daily') {
   try {
-    const response = await axios.get(`/api/smartolt/consumption/onu/${onuSn}`);
+    const url = `/api/smartolt/consumption/onu/${onuSn}`;
+    const params = graphType ? { graphType } : {};
+    const response = await axios.get(url, { params });
     return response.data.data;
   } catch (error) {
     console.error('Error al obtener consumo:', error.response?.data?.message || error.message);
@@ -218,13 +246,22 @@ function ConsumptionDisplay({ userId }) {
         <p><strong>Zona:</strong> {consumption.onu_info.zone || 'N/A'}</p>
       </div>
 
-      {/* Datos de tráfico/consumo */}
+      {/* Gráfico de tráfico/consumo */}
       <div className="traffic-data">
-        <h2>Datos de Consumo/Tráfico</h2>
-        {consumption.traffic ? (
-          <pre>{JSON.stringify(consumption.traffic, null, 2)}</pre>
+        <h2>Gráfico de Consumo/Tráfico</h2>
+        {consumption.traffic && consumption.traffic.image_base64 ? (
+          <div className="traffic-graph">
+            <img 
+              src={consumption.traffic.image_base64} 
+              alt={`Gráfico de tráfico ${consumption.traffic.graph_type}`}
+              style={{ maxWidth: '100%', height: 'auto' }}
+            />
+            <p className="graph-type">
+              Tipo de gráfico: {consumption.traffic.graph_type}
+            </p>
+          </div>
         ) : (
-          <p>No hay datos de tráfico disponibles</p>
+          <p>No hay gráfico de tráfico disponible</p>
         )}
       </div>
 
@@ -261,10 +298,11 @@ export default ConsumptionDisplay;
 - **zone**: Zona geográfica
 
 ### Datos de Consumo/Tráfico (traffic)
-- **download**: Bytes descargados (puede variar según API de SmartOLT)
-- **upload**: Bytes subidos (puede variar según API de SmartOLT)
-- **graphs**: Datos para gráficos (si están disponibles)
-- **timestamps**: Fechas de los datos (si están disponibles)
+- **graph_type**: Tipo de gráfico solicitado (`hourly`, `daily`, `weekly`, `monthly`, `yearly`)
+- **unique_external_id**: ID único externo de la ONU usado para obtener el gráfico
+- **image_base64**: Imagen PNG del gráfico en formato base64 (lista para usar en `<img src="...">`)
+- **content_type**: Tipo de contenido (`image/png`)
+- **image_url**: URL directa del endpoint de SmartOLT (requiere header `X-Token` si se usa directamente)
 
 ---
 
@@ -324,7 +362,7 @@ function handleApiError(error, response) {
 
 1. **Caché**: Los datos pueden venir del caché (`from_cache: true`). Esto ocurre cuando se alcanza el límite de peticiones de la API de SmartOLT.
 
-2. **Traffic Data**: La estructura de `traffic` depende de la respuesta del API de SmartOLT. Puede variar y necesitarás adaptar tu código según la estructura real.
+2. **Traffic Graph**: Los datos de tráfico ahora son una imagen PNG del gráfico de consumo. La imagen viene en formato base64 y puede ser usada directamente en un elemento `<img>`. Puedes cambiar el tipo de gráfico usando el parámetro `graphType` en la query string.
 
 3. **Timestamps**: Los timestamps están en formato ISO 8601 y pueden ser convertidos a formato local usando `new Date(timestamp).toLocaleString()`.
 
@@ -354,6 +392,7 @@ import React, { useState, useEffect } from 'react';
 
 function ConsumptionPage() {
   const [userId, setUserId] = useState('');
+  const [graphType, setGraphType] = useState('daily');
   const [consumption, setConsumption] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -368,7 +407,8 @@ function ConsumptionPage() {
       setLoading(true);
       setError(null);
       
-      const response = await fetch(`/api/smartolt/consumption/${userId}`);
+      const url = `/api/smartolt/consumption/${userId}?graphType=${graphType}`;
+      const response = await fetch(url);
       const result = await response.json();
 
       if (result.success) {
@@ -394,6 +434,17 @@ function ConsumptionPage() {
           onChange={(e) => setUserId(e.target.value)}
           placeholder="Ingresa el ID del usuario"
         />
+        <select 
+          value={graphType} 
+          onChange={(e) => setGraphType(e.target.value)}
+          disabled={loading}
+        >
+          <option value="hourly">Por Hora</option>
+          <option value="daily">Diario</option>
+          <option value="weekly">Semanal</option>
+          <option value="monthly">Mensual</option>
+          <option value="yearly">Anual</option>
+        </select>
         <button onClick={handleSearch} disabled={loading}>
           {loading ? 'Buscando...' : 'Buscar Consumo'}
         </button>
@@ -411,13 +462,18 @@ function ConsumptionPage() {
             <div><strong>Modelo:</strong> {consumption.onu_info.model || 'N/A'}</div>
           </div>
 
-          <h2>Datos de Tráfico</h2>
-          {consumption.traffic ? (
+          <h2>Gráfico de Tráfico</h2>
+          {consumption.traffic && consumption.traffic.image_base64 ? (
             <div className="traffic-display">
-              <pre>{JSON.stringify(consumption.traffic, null, 2)}</pre>
+              <img 
+                src={consumption.traffic.image_base64} 
+                alt={`Gráfico ${consumption.traffic.graph_type}`}
+                style={{ maxWidth: '100%', height: 'auto', border: '1px solid #ddd', borderRadius: '4px' }}
+              />
+              <p><small>Tipo: {consumption.traffic.graph_type}</small></p>
             </div>
           ) : (
-            <p>No hay datos de tráfico disponibles</p>
+            <p>No hay gráfico de tráfico disponible</p>
           )}
 
           <div className="meta">
