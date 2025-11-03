@@ -1,4 +1,5 @@
 import { config } from '../../configs/config';
+import { userService } from '../services';
 
 // Interface para la respuesta del servicio de conversión a Base64
 export interface IBase64PhotoResult {
@@ -217,6 +218,185 @@ export class Base64PhotoService {
       return {
         success: false,
         message: 'Error al construir la URL del gráfico de tráfico'
+      };
+    }
+  }
+
+  /**
+   * Obtener imagen de gráfico de tráfico por ONU Serial Number y convertirla a Base64
+   * El backend obtiene primero los detalles de la ONU, luego el gráfico y lo convierte a Base64
+   * @param onuSn - Número de serie de la ONU
+   * @param graphType - Tipo de gráfico: 'hourly', 'daily', 'weekly', 'monthly', 'yearly' (default: 'daily')
+   * @returns Resultado con la imagen en Base64
+   */
+  public async getImageByONU(
+    onuSn: string,
+    graphType: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' = 'daily'
+  ): Promise<IBase64PhotoResult> {
+    try {
+      const apiKey = this.configData.smartOLT.apiKey;
+
+      if (!apiKey) {
+        return {
+          success: false,
+          message: 'API Key de SmartOLT no configurada'
+        };
+      }
+
+      // Validar onuSn
+      if (!onuSn || typeof onuSn !== 'string' || onuSn.trim() === '') {
+        return {
+          success: false,
+          message: 'ONU Serial Number es requerido'
+        };
+      }
+
+      // Validar graphType
+      const validGraphTypes = ['hourly', 'daily', 'weekly', 'monthly', 'yearly'];
+      const finalGraphType = validGraphTypes.includes(graphType) ? graphType : 'daily';
+
+      const smartOLTBaseUrl = this.configData.smartOLT.baseUrl || 'https://conectatayd.smartolt.com/api';
+      const baseUrl = smartOLTBaseUrl.endsWith('/api') 
+        ? smartOLTBaseUrl 
+        : `${smartOLTBaseUrl}${smartOLTBaseUrl.endsWith('/') ? '' : '/'}api`;
+
+      console.log('Obteniendo imagen por ONU Serial Number:');
+      console.log('  - ONU_sn:', onuSn);
+      console.log('  - graph_type:', finalGraphType);
+
+      // PASO 1: Obtener los detalles de la ONU por su serial number
+      const onuDetailsEndpoint = `${baseUrl}/onu/get_onus_details_by_sn/${encodeURIComponent(onuSn)}`;
+      
+      const onuResponse = await fetch(onuDetailsEndpoint, {
+        method: 'GET',
+        headers: {
+          'X-Token': apiKey,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!onuResponse.ok) {
+        if (onuResponse.status === 404) {
+          return {
+            success: false,
+            message: 'ONU no encontrada en SmartOLT'
+          };
+        }
+        if (onuResponse.status === 403) {
+          return {
+            success: false,
+            message: 'Límite de peticiones horario de SmartOLT alcanzado. Intenta nuevamente más tarde.'
+          };
+        }
+        return {
+          success: false,
+          message: `Error al obtener detalles de la ONU: ${onuResponse.status} ${onuResponse.statusText}`
+        };
+      }
+
+      const onuData: any = await onuResponse.json();
+      
+      // Extraer la ONU de la respuesta
+      let onu: any = null;
+      if (onuData.status === true && onuData.onus) {
+        const onusList = Array.isArray(onuData.onus) ? onuData.onus : [onuData.onus];
+        if (onusList.length > 0) {
+          onu = onusList[0];
+        }
+      }
+
+      if (!onu) {
+        return {
+          success: false,
+          message: 'ONU no encontrada en SmartOLT'
+        };
+      }
+
+      // Verificar que tenemos el unique_external_id necesario
+      if (!onu.unique_external_id) {
+        return {
+          success: false,
+          message: 'ONU encontrada pero no tiene unique_external_id para consultar el gráfico de tráfico'
+        };
+      }
+
+      console.log('ONU encontrada:', {
+        serial: onu.sn,
+        unique_external_id: onu.unique_external_id
+      });
+
+      // PASO 2: Obtener el gráfico de tráfico y convertir a Base64
+      return await this.convertTrafficGraphToBase64(onu.unique_external_id, finalGraphType);
+
+    } catch (error) {
+      console.error('Error al obtener imagen por ONU Serial Number:', error);
+      return {
+        success: false,
+        message: 'Error al obtener imagen de la ONU desde SmartOLT'
+      };
+    }
+  }
+
+  /**
+   * Obtener imagen de gráfico de tráfico por User ID y convertirla a Base64
+   * El backend busca el usuario, obtiene su ONU_sn, luego obtiene el gráfico y lo convierte a Base64
+   * @param userId - ID del usuario en la base de datos
+   * @param graphType - Tipo de gráfico: 'hourly', 'daily', 'weekly', 'monthly', 'yearly' (default: 'daily')
+   * @returns Resultado con la imagen en Base64
+   */
+  public async getImageByUserId(
+    userId: string,
+    graphType: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' = 'daily'
+  ): Promise<IBase64PhotoResult> {
+    try {
+      // Validar userId
+      if (!userId || typeof userId !== 'string' || userId.trim() === '') {
+        return {
+          success: false,
+          message: 'ID de usuario es requerido'
+        };
+      }
+
+      // Buscar el usuario en la base de datos
+      const user = await userService.findUserById(userId.trim());
+
+      if (!user) {
+        return {
+          success: false,
+          message: 'Usuario no encontrado'
+        };
+      }
+
+      // Convertir el documento de Mongoose a objeto plano
+      const userObj = user.toObject ? user.toObject() : user;
+      const onuSn = (userObj as any).ONU_sn || (userObj as any).onu_sn;
+
+      console.log('Usuario encontrado:', {
+        id: user._id,
+        username: user.username,
+        onuSn: onuSn
+      });
+
+      if (!onuSn || (typeof onuSn === 'string' && onuSn.trim() === '')) {
+        return {
+          success: false,
+          message: 'El usuario no tiene un ONU_sn registrado'
+        };
+      }
+
+      // Validar graphType
+      const validGraphTypes = ['hourly', 'daily', 'weekly', 'monthly', 'yearly'];
+      const finalGraphType = validGraphTypes.includes(graphType) ? graphType : 'daily';
+
+      // Usar el método getImageByONU para obtener la imagen
+      return await this.getImageByONU(onuSn, finalGraphType);
+
+    } catch (error) {
+      console.error('Error al obtener imagen por User ID:', error);
+      return {
+        success: false,
+        message: 'Error al obtener imagen del usuario'
       };
     }
   }

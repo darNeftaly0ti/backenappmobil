@@ -5,6 +5,142 @@ import { base64PhotoService } from '../../services/smartOT/b64photo';
 export class Base64PhotoController {
   
   /**
+   * Obtener imagen de gráfico de tráfico por User ID y convertirla a Base64
+   * El backend hace todo: busca el usuario, obtiene su ONU_sn, consulta SmartOLT y convierte a Base64
+   */
+  public async getImageByUserId(req: Request, res: Response): Promise<void> {
+    try {
+      // Obtener el userId de los parámetros de la ruta, body o query params
+      const userId = req.params.userId || req.body.userId || req.query.userId;
+
+      if (!userId) {
+        res.status(400).json({
+          success: false,
+          message: 'ID de usuario es requerido'
+        });
+        return;
+      }
+
+      // Validar formato del ID
+      if (typeof userId !== 'string' || userId.trim() === '') {
+        res.status(400).json({
+          success: false,
+          message: 'ID de usuario inválido'
+        });
+        return;
+      }
+
+      // Obtener el tipo de gráfico desde query params o body (default: 'daily')
+      const graphType = (req.query.graphType || req.body.graphType || 'daily') as 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+      
+      // Validar que el graphType sea válido
+      const validGraphTypes = ['hourly', 'daily', 'weekly', 'monthly', 'yearly'];
+      const finalGraphType = validGraphTypes.includes(graphType) ? graphType : 'daily';
+
+      // Obtener la imagen en Base64 usando el servicio
+      const result = await base64PhotoService.getImageByUserId(userId.trim(), finalGraphType);
+
+      if (result.success) {
+        // Éxito: retornar los datos de la imagen en Base64
+        res.status(200).json({
+          success: true,
+          message: result.message,
+          data: result.data
+        });
+      } else {
+        // Error: retornar mensaje de error apropiado
+        const statusCode = result.message.includes('no encontrado') || result.message.includes('no encontrada')
+          ? 404 
+          : result.message.includes('no configurada') || result.message.includes('inválida')
+          ? 500
+          : result.message.includes('límite de peticiones')
+          ? 403
+          : 400;
+        
+        res.status(statusCode).json({
+          success: false,
+          message: result.message
+        });
+      }
+
+    } catch (error) {
+      console.error('Error en el controlador de imagen por User ID:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor al obtener imagen'
+      });
+    }
+  }
+
+  /**
+   * Obtener imagen de gráfico de tráfico por ONU Serial Number y convertirla a Base64
+   * El backend hace todo: consulta SmartOLT y convierte a Base64
+   */
+  public async getImageByONU(req: Request, res: Response): Promise<void> {
+    try {
+      // Obtener el ONU_sn de los parámetros de la ruta, body o query params
+      const onuSn = req.params.onuSn || req.body.onuSn || req.query.onuSn;
+
+      if (!onuSn) {
+        res.status(400).json({
+          success: false,
+          message: 'ONU Serial Number es requerido'
+        });
+        return;
+      }
+
+      // Validar que el ONU_sn no esté vacío
+      if (typeof onuSn !== 'string' || onuSn.trim() === '') {
+        res.status(400).json({
+          success: false,
+          message: 'ONU Serial Number inválido'
+        });
+        return;
+      }
+
+      // Obtener el tipo de gráfico desde query params o body (default: 'daily')
+      const graphType = (req.query.graphType || req.body.graphType || 'daily') as 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+      
+      // Validar que el graphType sea válido
+      const validGraphTypes = ['hourly', 'daily', 'weekly', 'monthly', 'yearly'];
+      const finalGraphType = validGraphTypes.includes(graphType) ? graphType : 'daily';
+
+      // Obtener la imagen en Base64 usando el servicio
+      const result = await base64PhotoService.getImageByONU(onuSn.trim(), finalGraphType);
+
+      if (result.success) {
+        // Éxito: retornar los datos de la imagen en Base64
+        res.status(200).json({
+          success: true,
+          message: result.message,
+          data: result.data
+        });
+      } else {
+        // Error: retornar mensaje de error apropiado
+        const statusCode = result.message.includes('no encontrada')
+          ? 404 
+          : result.message.includes('no configurada') || result.message.includes('inválida')
+          ? 500
+          : result.message.includes('límite de peticiones')
+          ? 403
+          : 400;
+        
+        res.status(statusCode).json({
+          success: false,
+          message: result.message
+        });
+      }
+
+    } catch (error) {
+      console.error('Error en el controlador de imagen por ONU:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor al obtener imagen'
+      });
+    }
+  }
+
+  /**
    * Convertir una imagen del API de SmartOLT a Base64 usando su URL
    * Útil para convertir cualquier imagen del API de SmartOLT a Base64
    */

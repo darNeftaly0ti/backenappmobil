@@ -44,9 +44,8 @@ router.post('/activity-logs/cleanup', activityLogController.deleteOldLogs);
 router.get('/smartolt/consumption/:userId', smartOLTController.getConsumption);
 router.get('/smartolt/consumption/onu/:onuSn', smartOLTController.getConsumptionByONU);
 
-// Rutas de SmartOLT (conversión de imágenes a Base64)
-router.post('/smartolt/image/to-base64', base64PhotoController.convertImageToBase64); // POST /api/users/smartolt/image/to-base64
-router.get('/smartolt/image/to-base64', base64PhotoController.convertImageToBase64); // GET /api/users/smartolt/image/to-base64?imageUrl=...
-router.get('/smartolt/traffic-graph/:uniqueExternalId/to-base64', base64PhotoController.convertTrafficGraphToBase64); // GET /api/users/smartolt/traffic-graph/:uniqueExternalId/to-base64?graphType=daily
+// Rutas de SmartOLT (imágenes en Base64 - el backend obtiene la imagen de SmartOLT y la convierte a Base64)
+router.get('/smartolt/image/user/:userId', base64PhotoController.getImageByUserId); // GET /api/users/smartolt/image/user/:userId?graphType=daily
+router.get('/smartolt/image/onu/:onuSn', base64PhotoController.getImageByONU); // GET /api/users/smartolt/image/onu/:onuSn?graphType=daily
 
 export default router;
