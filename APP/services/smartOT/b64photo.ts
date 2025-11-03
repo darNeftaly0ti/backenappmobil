@@ -1,5 +1,38 @@
 import { config } from '../../configs/config';
 import { userService } from '../services';
+import { createWorker, Worker } from 'tesseract.js';
+
+// Interface para datos extraídos del gráfico de tráfico
+export interface ITrafficGraphData {
+  // Datos del gráfico
+  graphType: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+  onuIdentifier?: string; // Ej: GPON001FCFDO, gpon-onu_1/6/2:2
+  
+  // Valores del eje Y (bits per second)
+  yAxisValues?: string[]; // Ej: ["0.0", "0.2k", "0.4k", "0.6k", "0.8k", "1.0k", "1.2k"]
+  yAxisLabel?: string; // Ej: "bits per second"
+  
+  // Horarios del eje X
+  xAxisTimestamps?: string[]; // Ej: ["20:20", "20:30", "20:40", "20:50", "21:00", "21:10"]
+  xAxisLabel?: string; // Descripción del eje X
+  
+  // Valores de Upload
+  upload?: {
+    current?: string; // Ej: "0.00"
+    maximum?: string; // Ej: "0.00"
+    unit?: string; // Ej: "bits per second", "k"
+  };
+  
+  // Valores de Download
+  download?: {
+    current?: string; // Ej: "1.12"
+    maximum?: string; // Ej: "1.14"
+    unit?: string; // Ej: "k", "bits per second"
+  };
+  
+  // Información adicional extraída
+  extractedText?: string; // Todo el texto extraído de la imagen
+}
 
 // Interface para los metadatos de la imagen
 export interface IImageMetadata {
@@ -23,6 +56,7 @@ export interface IBase64PhotoResult {
     image_url: string; // URL original de la imagen
     timestamp: Date; // Timestamp de cuando se obtuvo la imagen
     metadata?: IImageMetadata; // Metadatos extraídos de la imagen (dimensiones, etc.)
+    graphData?: ITrafficGraphData; // Datos extraídos del gráfico (valores, horarios, métricas)
   };
   message: string;
 }
@@ -171,11 +205,211 @@ export class Base64PhotoService {
   }
 
   /**
+   * Extraer datos del gráfico de tráfico de la imagen Base64 usando OCR (Tesseract.js)
+   * Analiza la imagen para extraer valores numéricos, horarios y métricas de forma precisa
+   * @param base64String - String Base64 de la imagen del gráfico
+   * @param graphType - Tipo de gráfico (hourly, daily, weekly, monthly, yearly)
+   * @returns Datos extraídos del gráfico
+   */
+  private async extractGraphDataFromImage(
+    base64String: string,
+    graphType: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly'
+  ): Promise<ITrafficGraphData> {
+    let worker: Worker | null = null;
+    
+    try {
+      const graphData: ITrafficGraphData = {
+        graphType: graphType,
+      };
+
+      // Remover el prefijo data URI si existe
+      const base64Data = base64String.includes(',') 
+        ? base64String.split(',')[1] 
+        : base64String;
+
+      console.log('Iniciando OCR para extraer datos del gráfico...');
+
+      // Crear worker de Tesseract
+      worker = await createWorker('eng', 1, {
+        logger: (m) => {
+          // Solo mostrar progreso importante
+          if (m.status === 'recognizing text') {
+            console.log(`OCR Progreso: ${m.progress?.toFixed(2) || 0}%`);
+          }
+        }
+      });
+
+      // Configurar parámetros para mejor reconocimiento de números y texto
+      await worker.setParameters({
+        tessedit_char_whitelist: '0123456789:.-kKMGTPEZYmbitspersecondHourlyDailyWeeklyMonthlyYearlyUploadDownloadCurrentMaximum',
+      });
+
+      // Crear buffer desde Base64
+      const imageBuffer = Buffer.from(base64Data, 'base64');
+
+      // Realizar OCR en la imagen
+      const { data: { text } } = await worker.recognize(imageBuffer);
+
+      console.log('OCR completado. Texto extraído (primeros 500 caracteres):');
+      console.log(text.substring(0, 500));
+
+      // Guardar todo el texto extraído
+      graphData.extractedText = text;
+
+      // Extraer identificador ONU
+      const onuPatterns = [
+        /gpon[_\s-]?onu[_\s:/-]?[\d/]+:?\d*/i,
+        /GPON\d+/i,
+        /HWTC\d+/i,
+        /ONU[:\s]+([A-Z0-9]+)/i
+      ];
+
+      for (const pattern of onuPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+          graphData.onuIdentifier = match[0].trim().replace(/\s+/g, '-');
+          break;
+        }
+      }
+
+      // Extraer horarios (formato HH:MM o H:MM)
+      const timeRegex = /\b([0-2]?[0-9]):([0-5][0-9])\b/g;
+      const times: string[] = [];
+      let match;
+      while ((match = timeRegex.exec(text)) !== null) {
+        const hour = match[1].padStart(2, '0');
+        const minute = match[2];
+        times.push(`${hour}:${minute}`);
+      }
+      if (times.length > 0) {
+        // Eliminar duplicados y ordenar
+        graphData.xAxisTimestamps = [...new Set(times)].sort().slice(0, 20);
+      }
+
+      // Extraer valores del eje Y (números con k, M, G, etc.)
+      const yAxisPatterns = [
+        /\b(\d+\.?\d*)\s*[kmKMG]\b/gi,
+        /\b(\d+\.?\d*)\s*k\b/gi,
+        /\b(\d+\.?\d*)\s*M\b/gi
+      ];
+
+      const yAxisValues: string[] = [];
+      for (const pattern of yAxisPatterns) {
+        const matches = text.match(pattern);
+        if (matches) {
+          yAxisValues.push(...matches.map(m => m.trim()));
+        }
+      }
+      if (yAxisValues.length > 0) {
+        graphData.yAxisValues = [...new Set(yAxisValues)].slice(0, 20);
+      }
+
+      // Extraer label del eje Y
+      if (text.match(/bits\s*per\s*second|bps/i)) {
+        graphData.yAxisLabel = 'bits per second';
+      } else if (text.match(/bytes\s*per\s*second|Bps/i)) {
+        graphData.yAxisLabel = 'bytes per second';
+      }
+
+      // Extraer valores de Upload
+      const uploadPatterns = [
+        /upload.*?current[:\s]*(\d+\.?\d*)\s*.*?maximum[:\s]*(\d+\.?\d*)/i,
+        /upload.*?(\d+\.?\d*)\s*.*?(\d+\.?\d*)/i,
+        /Upload\s*Current[:\s]*(\d+\.?\d*).*?Maximum[:\s]*(\d+\.?\d*)/i
+      ];
+
+      for (const pattern of uploadPatterns) {
+        const match = text.match(pattern);
+        if (match && match[1] && match[2]) {
+          graphData.upload = {
+            current: match[1],
+            maximum: match[2],
+            unit: 'bits per second'
+          };
+          break;
+        }
+      }
+
+      // Extraer valores de Download
+      const downloadPatterns = [
+        /download.*?current[:\s]*(\d+\.?\d*)\s*.*?maximum[:\s]*(\d+\.?\d*)/i,
+        /download.*?(\d+\.?\d*)\s*.*?(\d+\.?\d*)/i,
+        /Download\s*Current[:\s]*(\d+\.?\d*).*?Maximum[:\s]*(\d+\.?\d*)/i
+      ];
+
+      for (const pattern of downloadPatterns) {
+        const match = text.match(pattern);
+        if (match && match[1] && match[2]) {
+          graphData.download = {
+            current: match[1],
+            maximum: match[2],
+            unit: 'bits per second'
+          };
+          break;
+        }
+      }
+
+      // Si no encontramos upload/download con el patrón completo, buscar valores individuales
+      if (!graphData.upload) {
+        const uploadCurrentMatch = text.match(/upload.*?current[:\s]*(\d+\.?\d*)/i);
+        const uploadMaxMatch = text.match(/upload.*?maximum[:\s]*(\d+\.?\d*)/i);
+        if (uploadCurrentMatch || uploadMaxMatch) {
+          graphData.upload = {
+            current: uploadCurrentMatch?.[1] || '0.00',
+            maximum: uploadMaxMatch?.[1] || '0.00',
+            unit: 'bits per second'
+          };
+        }
+      }
+
+      if (!graphData.download) {
+        const downloadCurrentMatch = text.match(/download.*?current[:\s]*(\d+\.?\d*)/i);
+        const downloadMaxMatch = text.match(/download.*?maximum[:\s]*(\d+\.?\d*)/i);
+        if (downloadCurrentMatch || downloadMaxMatch) {
+          graphData.download = {
+            current: downloadCurrentMatch?.[1] || '0.00',
+            maximum: downloadMaxMatch?.[1] || '0.00',
+            unit: 'bits per second'
+          };
+        }
+      }
+
+      console.log('Datos extraídos del gráfico con OCR:');
+      console.log('  - Identificador ONU:', graphData.onuIdentifier || 'No encontrado');
+      console.log('  - Horarios encontrados:', graphData.xAxisTimestamps?.length || 0);
+      console.log('  - Valores eje Y:', graphData.yAxisValues?.length || 0);
+      console.log('  - Upload:', graphData.upload ? `${graphData.upload.current} / ${graphData.upload.maximum}` : 'No encontrado');
+      console.log('  - Download:', graphData.download ? `${graphData.download.current} / ${graphData.download.maximum}` : 'No encontrado');
+
+      return graphData;
+    } catch (error) {
+      console.error('Error al extraer datos del gráfico con OCR:', error);
+      // Retornar datos básicos si hay error
+      return {
+        graphType: graphType,
+        extractedText: error instanceof Error ? error.message : 'Error desconocido'
+      };
+    } finally {
+      // Limpiar worker
+      if (worker) {
+        await worker.terminate();
+        console.log('Worker de OCR terminado');
+      }
+    }
+  }
+
+  /**
    * Convertir una imagen del API de SmartOLT a Base64
    * @param imageUrl - URL completa de la imagen en el API de SmartOLT
-   * @returns Resultado con la imagen en Base64
+   * @param extractData - Si extraer datos del gráfico además de la imagen (default: true)
+   * @param graphType - Tipo de gráfico para extracción de datos (opcional)
+   * @returns Resultado con la imagen en Base64 y datos extraídos
    */
-  public async convertImageToBase64(imageUrl: string): Promise<IBase64PhotoResult> {
+  public async convertImageToBase64(
+    imageUrl: string,
+    extractData: boolean = false,
+    graphType: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' = 'daily'
+  ): Promise<IBase64PhotoResult> {
     try {
       const apiKey = this.configData.smartOLT.apiKey;
 
@@ -347,7 +581,8 @@ export class Base64PhotoService {
    */
   public async convertTrafficGraphToBase64(
     uniqueExternalId: string,
-    graphType: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' = 'daily'
+    graphType: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' = 'daily',
+    extractData: boolean = true
   ): Promise<IBase64PhotoResult> {
     try {
       // Validar uniqueExternalId
@@ -375,8 +610,8 @@ export class Base64PhotoService {
       console.log('  - graph_type:', finalGraphType);
       console.log('  - URL:', imageUrl);
 
-      // Usar el método principal para convertir la imagen
-      return await this.convertImageToBase64(imageUrl);
+      // Usar el método principal para convertir la imagen y extraer datos
+      return await this.convertImageToBase64(imageUrl, extractData, finalGraphType);
     } catch (error) {
       console.error('Error al construir URL de gráfico de tráfico:', error);
       return {
@@ -395,7 +630,8 @@ export class Base64PhotoService {
    */
   public async getImageByONU(
     onuSn: string,
-    graphType: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' = 'daily'
+    graphType: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' = 'daily',
+    extractData: boolean = true
   ): Promise<IBase64PhotoResult> {
     try {
       const apiKey = this.configData.smartOLT.apiKey;
@@ -490,8 +726,8 @@ export class Base64PhotoService {
         unique_external_id: onu.unique_external_id
       });
 
-      // PASO 2: Obtener el gráfico de tráfico y convertir a Base64
-      return await this.convertTrafficGraphToBase64(onu.unique_external_id, finalGraphType);
+      // PASO 2: Obtener el gráfico de tráfico y convertir a Base64 con extracción de datos
+      return await this.convertTrafficGraphToBase64(onu.unique_external_id, finalGraphType, extractData);
 
     } catch (error) {
       console.error('Error al obtener imagen por ONU Serial Number:', error);
@@ -511,7 +747,8 @@ export class Base64PhotoService {
    */
   public async getImageByUserId(
     userId: string,
-    graphType: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' = 'daily'
+    graphType: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' = 'daily',
+    extractData: boolean = true
   ): Promise<IBase64PhotoResult> {
     try {
       // Validar userId
@@ -553,8 +790,8 @@ export class Base64PhotoService {
       const validGraphTypes = ['hourly', 'daily', 'weekly', 'monthly', 'yearly'];
       const finalGraphType = validGraphTypes.includes(graphType) ? graphType : 'daily';
 
-      // Usar el método getImageByONU para obtener la imagen
-      return await this.getImageByONU(onuSn, finalGraphType);
+      // Usar el método getImageByONU para obtener la imagen con extracción de datos
+      return await this.getImageByONU(onuSn, finalGraphType, extractData);
 
     } catch (error) {
       console.error('Error al obtener imagen por User ID:', error);
