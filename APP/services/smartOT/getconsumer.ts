@@ -100,22 +100,11 @@ export class SmartOLTService {
       const userObj = user.toObject ? user.toObject() : user;
       const onuSn = (userObj as any).ONU_sn || (userObj as any).onu_sn;
 
-      // Obtener campos de filtrado para reducir consumo de API
-      const filters = {
-        olt_id: (userObj as any).olt_id,
-        board: (userObj as any).board,
-        port: (userObj as any).port,
-        zone: (userObj as any).zone,
-        olt_name: (userObj as any).olt_name
-      };
-
       // Debug: Log para verificar qué campos tiene el usuario
       console.log('Usuario encontrado:', {
         id: user._id,
         username: user.username,
-        onuSn: onuSn,
-        filters: filters,
-        filtersAvailable: Object.keys(filters).filter(key => filters[key as keyof typeof filters] !== undefined && filters[key as keyof typeof filters] !== null)
+        onuSn: onuSn
       });
 
       if (!onuSn || (typeof onuSn === 'string' && onuSn.trim() === '')) {
@@ -125,8 +114,9 @@ export class SmartOLTService {
         };
       }
 
-      // Consultar el consumo en SmartOLT con los filtros disponibles
-      return await this.getConsumptionByONU(onuSn, filters, graphType);
+      // Consultar el consumo en SmartOLT directamente por ONU_sn
+      // Ya no necesitamos filtros, el nuevo endpoint es directo por SN
+      return await this.getConsumptionByONU(onuSn, undefined, graphType);
 
     } catch (error) {
       console.error('Error al obtener consumo por userId:', error);
@@ -140,17 +130,11 @@ export class SmartOLTService {
   /**
    * Obtener el consumo directamente por ONU_sn desde SmartOLT
    * @param onuSn - Número de serie de la ONU
-   * @param filters - Filtros opcionales para reducir el consumo de API (olt_id, board, port, zone)
+   * @param filters - DEPRECADO: Ya no se necesitan filtros, el endpoint es directo por SN
    * @param graphType - Tipo de gráfico a obtener: 'hourly', 'daily', 'weekly', 'monthly', 'yearly' (default: 'daily')
    * @returns Resultado con los datos de consumo
    */
-  public async getConsumptionByONU(onuSn: string, filters?: {
-    olt_id?: string;
-    board?: number;
-    port?: number;
-    zone?: string;
-    olt_name?: string;
-  }, graphType: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' = 'daily'): Promise<IConsumptionResult> {
+  public async getConsumptionByONU(onuSn: string, filters?: any, graphType: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' = 'daily'): Promise<IConsumptionResult> {
     try {
       const apiKey = this.configData.smartOLT.apiKey;
 
@@ -164,44 +148,15 @@ export class SmartOLTService {
       // Configurar URL base del API de SmartOLT (ya incluye /api si está en .env)
       const smartOLTBaseUrl = this.configData.smartOLT.baseUrl || 'https://conectatayd.smartolt.com/api';
       
-      // PASO 1: Localizar la ONU específica usando su ONU_sn (serial number)
-      // Objetivo: Obtener el onu_id necesario para consultar el consumo
-      // Endpoint: GET /api/onu/get_all_onus_details
-      // Construir endpoint con filtros para reducir el consumo de API
-      // Si tenemos filtros disponibles (olt_id, board, port, zone), los usamos
-      // La URL base ya incluye /api, solo agregamos el path del endpoint
-      let endpoint = `${smartOLTBaseUrl}/onu/get_all_onus_details`;
-      const queryParams: string[] = [];
+      // PASO 1: Obtener los detalles de la ONU específica directamente por su ONU_sn (serial number)
+      // Endpoint: GET /api/onu/get_onus_details_by_sn/{onu_sn}
+      // Este endpoint retorna directamente la ONU específica sin necesidad de filtros
+      const endpoint = `${smartOLTBaseUrl}/onu/get_onus_details_by_sn/${encodeURIComponent(onuSn)}`;
       
-      if (filters?.olt_id) {
-        queryParams.push(`olt_id=${encodeURIComponent(filters.olt_id)}`);
-      }
-      if (filters?.board !== undefined && filters.board !== null) {
-        queryParams.push(`board=${filters.board}`);
-      }
-      if (filters?.port !== undefined && filters.port !== null) {
-        queryParams.push(`port=${filters.port}`);
-      }
-      if (filters?.zone) {
-        queryParams.push(`zone=${encodeURIComponent(filters.zone)}`);
-      }
-      
-      // Si tenemos filtros, agregarlos al endpoint
-      if (queryParams.length > 0) {
-        endpoint += `?${queryParams.join('&')}`;
-      }
-      
-      // Logs detallados para debug
+      // Logs para debug
       console.log('Consultando SmartOLT:');
       console.log('  - ONU_sn buscado:', onuSn);
       console.log('  - URL base:', smartOLTBaseUrl);
-      console.log('  - Filtros aplicados:', {
-        olt_id: filters?.olt_id || 'NO DISPONIBLE',
-        board: filters?.board !== undefined ? filters.board : 'NO DISPONIBLE',
-        port: filters?.port !== undefined ? filters.port : 'NO DISPONIBLE',
-        zone: filters?.zone || 'NO DISPONIBLE',
-        totalFiltros: queryParams.length
-      });
       console.log('  - Endpoint completo:', endpoint);
 
       // Hacer la petición al API de SmartOLT con el formato correcto
@@ -293,87 +248,42 @@ export class SmartOLTService {
       console.log('Estructura de respuesta recibida:', {
         hasStatus: 'status' in responseData,
         status: responseData.status,
-        hasResponse: 'response' in responseData,
-        responseType: Array.isArray(responseData.response) ? 'array' : typeof responseData.response,
+        hasOnus: 'onus' in responseData,
+        onusType: responseData.onus ? (Array.isArray(responseData.onus) ? 'array' : typeof responseData.onus) : 'undefined',
         allKeys: Object.keys(responseData)
       });
       
-      // Verificar estructura de respuesta de SmartOLT (más flexible)
-      // SmartOLT puede retornar diferentes formatos:
-      // 1. { status: true, response: [...] }
-      // 2. { status: true, onus: [...] }  <- Formato real de SmartOLT
-      // 3. Array directo [...]
-      let onusList: any[] = [];
+      // El nuevo endpoint get_onus_details_by_sn retorna: { status: true, onus: [...] }
+      // Ya retorna directamente la ONU específica que buscamos
+      let onu: any = null;
       
-      if (responseData.status === true && responseData.response) {
-        // Formato estándar: { status: true, response: [...] }
-        onusList = Array.isArray(responseData.response) ? responseData.response : [responseData.response];
-      } else if (responseData.status === true && responseData.onus) {
-        // Formato real de SmartOLT: { status: true, onus: [...] }
-        onusList = Array.isArray(responseData.onus) ? responseData.onus : [responseData.onus];
-      } else if (Array.isArray(responseData)) {
-        // Formato alternativo: respuesta directa es un array
-        onusList = responseData;
-      } else if (responseData.response && Array.isArray(responseData.response)) {
-        // Otro formato posible
-        onusList = responseData.response;
+      if (responseData.status === true && responseData.onus) {
+        // Formato del nuevo endpoint: { status: true, onus: [...] }
+        const onusList = Array.isArray(responseData.onus) ? responseData.onus : [responseData.onus];
+        
+        if (onusList.length > 0) {
+          // Tomar la primera ONU (el endpoint debería retornar solo la que buscamos)
+          onu = onusList[0];
+          
+          // Verificar que el SN coincide (por seguridad)
+          if (onu.sn !== onuSn && onu.unique_external_id !== onuSn) {
+            console.warn('La ONU retornada no coincide con el SN buscado:', {
+              buscado: onuSn,
+              retornado: onu.sn || onu.unique_external_id
+            });
+          }
+        }
       } else {
-        // No encontramos el formato esperado, retornar error con detalles útiles
-        const errorDetails = {
-          keys: Object.keys(responseData),
-          firstKeySample: responseData[Object.keys(responseData)[0]] ? 
-            JSON.stringify(responseData[Object.keys(responseData)[0]]).substring(0, 100) : 'null',
-          responseType: typeof responseData,
-          isArray: Array.isArray(responseData)
-        };
-        
-        console.error('Formato de respuesta desconocido:', JSON.stringify(errorDetails));
-        
+        // Formato inesperado
+        console.error('Formato de respuesta desconocido:', JSON.stringify(responseData));
         return {
           success: false,
           message: `Formato de respuesta inesperado de SmartOLT. Campos recibidos: ${Object.keys(responseData).join(', ')}. Revisa los logs del servidor para más detalles.`
         };
       }
-      
-      console.log(`Total de ONUs encontradas en respuesta (filtradas): ${onusList.length}`);
-
-      // Buscar la ONU específica por serial number en la respuesta filtrada
-      // Según los logs anteriores, SmartOLT usa el campo 'sn' para el serial number
-      console.log('Buscando ONU con serial:', onuSn);
-      
-      const onu = onusList.find((onuItem: any) => {
-        // Intentar múltiples campos posibles para el serial number
-        const matches = 
-          onuItem.sn === onuSn ||  // Campo real de SmartOLT (prioridad)
-          onuItem.serial_number === onuSn || 
-          onuItem.serial === onuSn ||
-          onuItem.ONU_sn === onuSn ||
-          onuItem.unique_external_id === onuSn;
-        
-        if (matches) {
-          console.log('Coincidencia encontrada en campo:', {
-            sn: onuItem.sn,
-            serial_number: onuItem.serial_number,
-            serial: onuItem.serial,
-            ONU_sn: onuItem.ONU_sn,
-            unique_external_id: onuItem.unique_external_id,
-            // Mostrar posibles campos de ID
-            id: onuItem.id,
-            onu_id: onuItem.onu_id,
-            unique_id: onuItem.unique_id,
-            allKeys: Object.keys(onuItem)
-          });
-        }
-        
-        return matches;
-      });
 
       if (!onu) {
-        console.log('ONU no encontrada en la lista. Serial buscado:', onuSn);
-        console.log('Primeros 3 ONUs encontrados:', onusList.slice(0, 3).map((o: any) => ({
-          serial: o.serial_number || o.serial || o.sn || o.ONU_sn,
-          keys: Object.keys(o)
-        })));
+        console.log('ONU no encontrada. Serial buscado:', onuSn);
         return {
           success: false,
           message: 'ONU no encontrada en SmartOLT'
@@ -381,58 +291,24 @@ export class SmartOLTService {
       }
 
       console.log('ONU encontrada:', {
-        serial: onu.serial_number || onu.serial || onu.sn,
-        onu_id: onu.id || onu.onu_id || onu.unique_id,
+        serial: onu.sn,
+        unique_external_id: onu.unique_external_id,
         status: onu.status,
+        name: onu.name,
         olt_id: onu.olt_id,
         board: onu.board,
         port: onu.port,
         onu: onu.onu
       });
 
-      // Obtener el onu_id para consultar el endpoint de tráfico/consumo
-      // Revisar múltiples campos posibles donde pueda estar el ID
-      // El onu_id puede estar en diferentes formatos según SmartOLT
-      let onuId = onu.id || 
-                  onu.onu_id || 
-                  onu.unique_id;
-      
-      // Si no encontramos un ID directo, intentar construir el ID usando los campos disponibles
-      // SmartOLT puede usar un formato como: olt_id/board/port/onu
-      if (!onuId && onu.olt_id && onu.board !== undefined && onu.port !== undefined && onu.onu !== undefined) {
-        // Intentar formato compuesto: olt_id/board/port/onu
-        onuId = `${onu.olt_id}/${onu.board}/${onu.port}/${onu.onu}`;
-        console.log('Construyendo onu_id usando formato compuesto:', onuId);
-      }
-      
-      // Si aún no tenemos ID, usar unique_external_id como último recurso
-      if (!onuId) {
-        onuId = onu.unique_external_id || 
-                onu.external_id ||
-                onu.onu_unique_id ||
-                onu.onu_external_id ||
-                onu.sn; // Usar el serial como último recurso
-      }
-      
-      if (!onuId) {
-        console.error('ONU encontrada pero no tiene ID válido:', onu);
+      // Verificar que tenemos el unique_external_id necesario para obtener el gráfico
+      if (!onu.unique_external_id) {
+        console.error('ONU encontrada pero no tiene unique_external_id para obtener el gráfico');
         return {
           success: false,
-          message: 'ONU encontrada pero no se pudo obtener su ID para consultar el consumo'
+          message: 'ONU encontrada pero no tiene unique_external_id para consultar el gráfico de tráfico'
         };
       }
-
-      console.log('Obteniendo datos de tráfico/consumo para ONU ID:', onuId);
-      console.log('Campos de ONU disponibles para ID:', {
-        id: onu.id,
-        onu_id: onu.onu_id,
-        unique_id: onu.unique_id,
-        unique_external_id: onu.unique_external_id,
-        olt_id: onu.olt_id,
-        board: onu.board,
-        port: onu.port,
-        onu: onu.onu
-      });
 
       // PASO 2: Obtener el gráfico de tráfico/consumo de la ONU usando su unique_external_id
       // Endpoint correcto: GET /api/onu/get_onu_traffic_graph/{onu_external_id}/{graph_type}
@@ -515,7 +391,7 @@ export class SmartOLTService {
       const consumptionData = {
         // Información básica de la ONU
         onu_sn: onuSn,
-        onu_id: onuId,
+        onu_id: onu.unique_external_id, // Usar unique_external_id como ID
         // Información detallada de la ONU (campos principales)
         onu_info: {
           status: onu.status,

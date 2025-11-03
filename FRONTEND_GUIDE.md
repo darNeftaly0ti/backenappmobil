@@ -491,3 +491,343 @@ function ConsumptionPage() {
 export default ConsumptionPage;
 ```
 
+---
+
+## 📱 Guía para Flutter/Dart - Ajustes del Frontend
+
+### ⚠️ Cambios Necesarios en la Vista
+
+Ya que el nuevo endpoint retorna una **imagen PNG** en lugar de datos numéricos, necesitas hacer estos ajustes:
+
+### 1. **Ocultar o Ajustar Cards de Resumen**
+
+Los cards que muestran "Total Usage", "Upload" y "Download" con valores "0.0 B" deben ser ocultados o mostrar "N/A" ya que estos datos numéricos no están disponibles en la nueva estructura:
+
+```dart
+// Opción 1: Ocultar completamente los cards
+if (false) { // Cambiar a true si vuelves a tener datos numéricos
+  // Cards de Total Usage, Upload, Download
+}
+
+// Opción 2: Mostrar "N/A" o indicador de que no está disponible
+Widget buildSummaryCard(String title, String value) {
+  return Card(
+    child: Column(
+      children: [
+        Text(title),
+        Text(value == "0.0 B" ? "N/A" : value), // Mostrar N/A si es 0
+      ],
+    ),
+  );
+}
+```
+
+### 2. **Mostrar la Imagen PNG del Gráfico**
+
+En la sección "Usage Trend", reemplaza el gráfico generado dinámicamente con la imagen PNG del API:
+
+```dart
+import 'dart:convert';
+import 'package:flutter/material.dart';
+
+class NetworkUsageScreen extends StatefulWidget {
+  @override
+  _NetworkUsageScreenState createState() => _NetworkUsageScreenState();
+}
+
+class _NetworkUsageScreenState extends State<NetworkUsageScreen> {
+  Map<String, dynamic>? consumptionData;
+  bool isLoading = false;
+  String selectedGraphType = 'hourly';
+
+  // Tipos de gráfico disponibles
+  final List<Map<String, String>> graphTypes = [
+    {'value': 'hourly', 'label': 'Por Hora'},
+    {'value': 'daily', 'label': 'Diario'},
+    {'value': 'weekly', 'label': 'Semanal'},
+    {'value': 'monthly', 'label': 'Mensual'},
+    {'value': 'yearly', 'label': 'Anual'},
+  ];
+
+  Future<void> fetchConsumption(String userId) async {
+    setState(() => isLoading = true);
+    
+    try {
+      final url = Uri.parse(
+        'http://18.191.163.61:3005/api/users/smartolt/consumption/$userId?graphType=$selectedGraphType'
+      );
+      
+      final response = await http.get(url);
+      
+      if (response.statusCode == 200) {
+        final result = json.decode(response.body);
+        if (result['success'] == true) {
+          setState(() => consumptionData = result['data']);
+        }
+      }
+    } catch (e) {
+      print('Error: $e');
+    } finally {
+      setState(() => isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Network Usage'),
+        subtitle: Text('Monitor data consumption'),
+      ),
+      body: isLoading
+          ? Center(child: CircularProgressIndicator())
+          : consumptionData == null
+              ? Center(child: Text('No hay datos disponibles'))
+              : SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      // Selector de tipo de gráfico
+                      Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            Text('Tipo de gráfico:'),
+                            SizedBox(width: 16),
+                            DropdownButton<String>(
+                              value: selectedGraphType,
+                              items: graphTypes.map((type) {
+                                return DropdownMenuItem(
+                                  value: type['value'],
+                                  child: Text(type['label']!),
+                                );
+                              }).toList(),
+                              onChanged: (value) {
+                                setState(() => selectedGraphType = value!);
+                                // Recargar datos con el nuevo tipo
+                                fetchConsumption('userId'); // Reemplazar con el userId real
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Sección Usage Trend - Mostrar imagen PNG
+                      if (consumptionData!['traffic'] != null &&
+                          consumptionData!['traffic']['image_base64'] != null)
+                        Card(
+                          margin: EdgeInsets.all(16),
+                          child: Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      'Usage Trend',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    // Botón para cambiar tipo de gráfico
+                                    Chip(
+                                      label: Text(
+                                        _getGraphTypeLabel(consumptionData!['traffic']['graph_type']),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                SizedBox(height: 16),
+                                // Mostrar la imagen PNG del gráfico
+                                Center(
+                                  child: Image.memory(
+                                    base64Decode(
+                                      consumptionData!['traffic']['image_base64']
+                                          .split(',')[1], // Remover el prefijo "data:image/png;base64,"
+                                    ),
+                                    fit: BoxFit.contain,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      else
+                        Card(
+                          margin: EdgeInsets.all(16),
+                          child: Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Center(
+                              child: Text('No hay gráfico disponible'),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+    );
+  }
+
+  String _getGraphTypeLabel(String type) {
+    final labels = {
+      'hourly': 'Por Hora',
+      'daily': 'Diario',
+      'weekly': 'Semanal',
+      'monthly': 'Mensual',
+      'yearly': 'Anual',
+    };
+    return labels[type] ?? type;
+  }
+}
+```
+
+### 3. **Ocultar Valores "Current" y "Maximum"**
+
+Los valores "Upload Current: 0.00" y "Download Current: 731.42" que aparecen debajo del gráfico también deben ser ocultados o ajustados:
+
+```dart
+// Opción 1: Ocultar completamente
+if (false) { // Cambiar a true si vuelves a tener estos datos
+  // Widget con los valores Current/Maximum
+}
+
+// Opción 2: Mostrar mensaje informativo
+Widget buildGraphLegend() {
+  if (consumptionData?['traffic']?['image_base64'] != null) {
+    return Text(
+      'Gráfico de tráfico ${consumptionData!['traffic']['graph_type']}',
+      style: TextStyle(fontSize: 12, color: Colors.grey),
+    );
+  }
+  return SizedBox.shrink(); // Ocultar si no hay gráfico
+}
+```
+
+### 4. **Estructura Completa del Widget de Gráfico**
+
+```dart
+Widget buildTrafficGraph() {
+  final traffic = consumptionData?['traffic'];
+  
+  if (traffic == null || traffic['image_base64'] == null) {
+    return Card(
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Center(
+          child: Column(
+            children: [
+              Icon(Icons.bar_chart, size: 48, color: Colors.grey),
+              SizedBox(height: 8),
+              Text('No hay gráfico disponible'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Decodificar la imagen base64
+  String base64String = traffic['image_base64'];
+  if (base64String.startsWith('data:')) {
+    base64String = base64String.split(',')[1];
+  }
+  
+  return Card(
+    margin: EdgeInsets.all(16),
+    child: Padding(
+      padding: EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Título y tipo de gráfico
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Usage Trend',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Chip(
+                label: Text(_getGraphTypeLabel(traffic['graph_type'])),
+              ),
+            ],
+          ),
+          SizedBox(height: 16),
+          
+          // Imagen del gráfico
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.memory(
+                base64Decode(base64String),
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+          
+          SizedBox(height: 16),
+          
+          // Información adicional (opcional)
+          Text(
+            'Última actualización: ${_formatTimestamp(consumptionData!['timestamp'])}',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+String _formatTimestamp(String timestamp) {
+  try {
+    final date = DateTime.parse(timestamp);
+    return '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+  } catch (e) {
+    return timestamp;
+  }
+}
+```
+
+### 5. **Importaciones Necesarias**
+
+Asegúrate de tener estas importaciones en tu archivo Dart:
+
+```dart
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+```
+
+### 📝 Resumen de Cambios
+
+1. ✅ **Ocultar cards de resumen** (Total Usage, Upload, Download) que muestran "0.0 B"
+2. ✅ **Reemplazar el gráfico dinámico** con `Image.memory()` usando `base64Decode()` de la imagen PNG
+3. ✅ **Ocultar valores "Current" y "Maximum"** debajo del gráfico
+4. ✅ **Agregar selector de tipo de gráfico** (hourly, daily, weekly, monthly, yearly)
+5. ✅ **Manejar la imagen base64** correctamente (removiendo el prefijo "data:image/png;base64,")
+
+### 🔍 Debugging
+
+Si la imagen no se muestra, verifica:
+
+```dart
+print('Traffic data: ${consumptionData?['traffic']}');
+print('Image base64 length: ${consumptionData?['traffic']?['image_base64']?.length}');
+print('Graph type: ${consumptionData?['traffic']?['graph_type']}');
+```
+
+---
+
