@@ -3,12 +3,18 @@ import { authController } from '../controllers/controller';
 import { activityLogController } from '../controllers/activity_logs';
 import { smartOLTController } from '../controllers/smartOLT/getconsumer';
 import { base64PhotoController } from '../controllers/smartOLT/b64photo';
+import { createUserController } from '../controllers/backoffi/createuser';
 
 // Crear instancia del router
 const router = Router();
 
 // Rutas de autenticación
 router.post('/login', authController.login); // POST /api/users/login
+
+// Rutas de creación de usuarios (deben ir antes de las rutas genéricas /:id)
+router.post('/create', createUserController.createUser); // POST /api/users/create
+router.post('/create-minimal', createUserController.createUserMinimal); // POST /api/users/create-minimal
+router.get('/create/health', createUserController.healthCheck); // GET /api/users/create/health
 
 // Ruta de prueba para verificar que el router funciona (debe ir antes de /:id)
 router.get('/health', (req, res) => {
