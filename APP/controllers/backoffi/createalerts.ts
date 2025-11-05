@@ -367,6 +367,77 @@ export class CreateAlertController {
   }
 
   /**
+   * Obtener todas las notificaciones (sin filtrar por usuario)
+   * GET /api/users/alerts
+   */
+  public async getAllAlerts(req: Request, res: Response): Promise<void> {
+    try {
+      // Obtener filtros de query params
+      const { type, priority, limit, skip } = req.query;
+
+      const filters: any = {};
+      
+      if (type) {
+        filters.type = type;
+      }
+
+      if (priority) {
+        filters.priority = priority;
+      }
+
+      if (limit) {
+        filters.limit = Number(limit);
+      }
+
+      if (skip) {
+        filters.skip = Number(skip);
+      }
+
+      // Obtener todas las notificaciones usando el servicio
+      const alerts = await createAlertService.getAllAlerts(filters);
+
+      res.status(200).json({
+        success: true,
+        message: 'Notificaciones obtenidas exitosamente',
+        alerts: alerts,
+        total: alerts.length,
+        filters: filters
+      });
+
+    } catch (error) {
+      console.error('Error al obtener todas las notificaciones:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor al obtener notificaciones'
+      });
+    }
+  }
+
+  /**
+   * Obtener estadísticas generales de notificaciones
+   * GET /api/users/alerts/stats
+   */
+  public async getStats(req: Request, res: Response): Promise<void> {
+    try {
+      // Obtener estadísticas usando el servicio
+      const stats = await createAlertService.getStats();
+
+      res.status(200).json({
+        success: true,
+        message: 'Estadísticas obtenidas exitosamente',
+        stats: stats
+      });
+
+    } catch (error) {
+      console.error('Error al obtener estadísticas:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor al obtener estadísticas'
+      });
+    }
+  }
+
+  /**
    * Health check del controlador
    */
   public async healthCheck(req: Request, res: Response): Promise<void> {

@@ -2,6 +2,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 import { config } from '../../configs/config';
 import { userService } from '../services';
 import { notificationResponseService } from './notificationresponses';
+import { saveSurveyResponseService } from './saveresponsies';
 
 // Interface para los datos de creación de notificación
 export interface ICreateAlertData {
@@ -603,6 +604,113 @@ export class CreateAlertService {
     } catch (error) {
       console.error('Error al obtener contador de notificaciones no leídas:', error);
       throw new Error('Error interno del servidor al obtener contador');
+    }
+  }
+
+  /**
+   * Obtener todas las notificaciones (sin filtrar por usuario)
+   */
+  public async getAllAlerts(filters?: {
+    type?: string;
+    priority?: string;
+    limit?: number;
+    skip?: number;
+  }): Promise<IAlert[]> {
+    try {
+      const query: any = {};
+
+      if (filters?.type) {
+        query.type = filters.type;
+      }
+
+      if (filters?.priority) {
+        query.priority = filters.priority;
+      }
+
+      // Excluir notificaciones expiradas
+      query.$or = [
+        { expires_at: { $exists: false } },
+        { expires_at: null },
+        { expires_at: { $gt: new Date() } }
+      ];
+
+      const limit = filters?.limit || 50;
+      const skip = filters?.skip || 0;
+
+      const alerts = await this.AlertModel.find(query)
+        .sort({ created_at: -1 })
+        .limit(limit)
+        .skip(skip);
+
+      return alerts;
+    } catch (error) {
+      console.error('Error al obtener todas las notificaciones:', error);
+      throw new Error('Error interno del servidor al obtener notificaciones');
+    }
+  }
+
+  /**
+   * Obtener estadísticas generales de notificaciones
+   */
+  public async getStats(): Promise<{
+    delivery_rate: number; // Tasa de entrega (notification_responses / alerts × 100)
+    open_rate: number; // Tasa de apertura (read: true / notification_responses × 100)
+    response_rate: number; // Tasa de respuesta (survey_responses / alerts tipo "survey" × 100)
+    total_alerts: number; // Total de alerts enviados
+    total_notification_responses: number; // Total de notification_responses creados
+    total_read: number; // Total de notification_responses con read: true
+    total_survey_alerts: number; // Total de alerts tipo "survey"
+    total_survey_responses: number; // Total de survey_responses
+  }> {
+    try {
+      // Total de alerts enviados (excluir expiradas)
+      const totalAlerts = await this.AlertModel.countDocuments({
+        $or: [
+          { expires_at: { $exists: false } },
+          { expires_at: null },
+          { expires_at: { $gt: new Date() } }
+        ]
+      });
+
+      // Total de notification_responses creados
+      const NotificationResponseModel = mongoose.model('NotificationResponse');
+      const totalNotificationResponses = await NotificationResponseModel.countDocuments({});
+
+      // Total de notification_responses con read: true
+      const totalRead = await NotificationResponseModel.countDocuments({ read: true });
+
+      // Total de alerts tipo "survey"
+      const totalSurveyAlerts = await this.AlertModel.countDocuments({
+        type: 'survey',
+        $or: [
+          { expires_at: { $exists: false } },
+          { expires_at: null },
+          { expires_at: { $gt: new Date() } }
+        ]
+      });
+
+      // Total de survey_responses
+      const SurveyResponseModel = mongoose.model('SurveyResponse');
+      const totalSurveyResponses = await SurveyResponseModel.countDocuments({});
+
+      // Calcular tasas
+      const deliveryRate = totalAlerts > 0 ? (totalNotificationResponses / totalAlerts) * 100 : 0;
+      const openRate = totalNotificationResponses > 0 ? (totalRead / totalNotificationResponses) * 100 : 0;
+      const responseRate = totalSurveyAlerts > 0 ? (totalSurveyResponses / totalSurveyAlerts) * 100 : 0;
+
+      return {
+        delivery_rate: Math.round(deliveryRate * 100) / 100, // Redondear a 2 decimales
+        open_rate: Math.round(openRate * 100) / 100,
+        response_rate: Math.round(responseRate * 100) / 100,
+        total_alerts: totalAlerts,
+        total_notification_responses: totalNotificationResponses,
+        total_read: totalRead,
+        total_survey_alerts: totalSurveyAlerts,
+        total_survey_responses: totalSurveyResponses
+      };
+    } catch (error) {
+      console.error('Error al obtener estadísticas:', error);
+      throw new Error('Error interno del servidor al obtener estadísticas');
     }
   }
 }

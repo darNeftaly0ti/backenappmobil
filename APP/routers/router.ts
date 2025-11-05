@@ -6,6 +6,7 @@ import { base64PhotoController } from '../controllers/smartOLT/b64photo';
 import { createUserController } from '../controllers/backoffi/createuser';
 import { createAlertController } from '../controllers/backoffi/createalerts';
 import { saveSurveyResponseController } from '../controllers/backoffi/saveresponsies';
+import { notificationResponseController } from '../controllers/backoffi/notificationresponses';
 
 // Crear instancia del router
 const router = Router();
@@ -22,6 +23,8 @@ router.get('/create/health', createUserController.healthCheck); // GET /api/user
 // IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas genéricas
 router.post('/alerts', createAlertController.createAlert); // POST /api/users/alerts
 router.get('/alerts/health', createAlertController.healthCheck); // GET /api/users/alerts/health
+router.get('/alerts/stats', createAlertController.getStats); // GET /api/users/alerts/stats
+router.get('/alerts', createAlertController.getAllAlerts); // GET /api/users/alerts (debe ir antes de /alerts/:userId)
 router.patch('/alerts/mark-all-read', createAlertController.markAllAsRead); // PATCH /api/users/alerts/mark-all-read
 router.put('/alerts/mark-all-read', createAlertController.markAllAsRead); // PUT /api/users/alerts/mark-all-read
 router.get('/alerts/:userId/unread-count', createAlertController.getUnreadCount); // GET /api/users/alerts/:userId/unread-count
@@ -29,6 +32,10 @@ router.patch('/alerts/:alertId/mark-read', createAlertController.markAsRead); //
 router.put('/alerts/:alertId/mark-read', createAlertController.markAsRead); // PUT /api/users/alerts/:alertId/mark-read
 router.delete('/alerts/:alertId', createAlertController.deleteAlert); // DELETE /api/users/alerts/:alertId
 router.get('/alerts/:userId', createAlertController.getUserAlerts); // GET /api/users/alerts/:userId (debe ir al final)
+
+// Rutas de respuestas de notificaciones (deben ir antes de las rutas genéricas /:id)
+router.get('/notification-responses/alert/:alertId', notificationResponseController.getAlertNotificationResponses); // GET /api/users/notification-responses/alert/:alertId
+router.get('/notification-responses/:userId', notificationResponseController.getUserNotificationResponses); // GET /api/users/notification-responses/:userId
 
 // Rutas de respuestas de encuestas (deben ir antes de las rutas genéricas /:id)
 // IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas genéricas
