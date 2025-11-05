@@ -713,6 +713,200 @@ export class CreateAlertService {
       throw new Error('Error interno del servidor al obtener estadísticas');
     }
   }
+
+  /**
+   * Calcular estadísticas para un período específico
+   */
+  private async getStatsForPeriod(startDate: Date, endDate: Date): Promise<{
+    delivery_rate: number;
+    open_rate: number;
+    response_rate: number;
+    total_alerts: number;
+    total_notification_responses: number;
+    total_read: number;
+    total_survey_alerts: number;
+    total_survey_responses: number;
+  }> {
+    try {
+      // Query para alerts en el período (usando created_at)
+      const alertsQuery: any = {
+        created_at: {
+          $gte: startDate,
+          $lte: endDate
+        },
+        $or: [
+          { expires_at: { $exists: false } },
+          { expires_at: null },
+          { expires_at: { $gt: new Date() } }
+        ]
+      };
+
+      // Total de alerts en el período
+      const totalAlerts = await this.AlertModel.countDocuments(alertsQuery);
+
+      // Obtener IDs de alerts en el período
+      const alertsInPeriod = await this.AlertModel.find(alertsQuery).select('_id');
+      const alertIds = alertsInPeriod.map(alert => alert._id);
+
+      // Total de notification_responses en el período
+      const NotificationResponseModel = mongoose.model('NotificationResponse');
+      const totalNotificationResponses = await NotificationResponseModel.countDocuments({
+        alert_id: { $in: alertIds },
+        created_at: {
+          $gte: startDate,
+          $lte: endDate
+        }
+      });
+
+      // Total de notification_responses leídas en el período
+      const totalRead = await NotificationResponseModel.countDocuments({
+        alert_id: { $in: alertIds },
+        read: true,
+        read_at: {
+          $gte: startDate,
+          $lte: endDate
+        }
+      });
+
+      // Total de alerts tipo "survey" en el período
+      const surveyAlertsQuery = {
+        ...alertsQuery,
+        type: 'survey'
+      };
+      const totalSurveyAlerts = await this.AlertModel.countDocuments(surveyAlertsQuery);
+
+      // Total de survey_responses en el período
+      const SurveyResponseModel = mongoose.model('SurveyResponse');
+      const totalSurveyResponses = await SurveyResponseModel.countDocuments({
+        alert_id: { $in: alertIds },
+        created_at: {
+          $gte: startDate,
+          $lte: endDate
+        }
+      });
+
+      // Calcular tasas
+      const deliveryRate = totalAlerts > 0 ? (totalNotificationResponses / totalAlerts) * 100 : 0;
+      const openRate = totalNotificationResponses > 0 ? (totalRead / totalNotificationResponses) * 100 : 0;
+      const responseRate = totalSurveyAlerts > 0 ? (totalSurveyResponses / totalSurveyAlerts) * 100 : 0;
+
+      return {
+        delivery_rate: Math.round(deliveryRate * 100) / 100,
+        open_rate: Math.round(openRate * 100) / 100,
+        response_rate: Math.round(responseRate * 100) / 100,
+        total_alerts: totalAlerts,
+        total_notification_responses: totalNotificationResponses,
+        total_read: totalRead,
+        total_survey_alerts: totalSurveyAlerts,
+        total_survey_responses: totalSurveyResponses
+      };
+    } catch (error) {
+      console.error('Error al calcular estadísticas del período:', error);
+      throw new Error('Error interno del servidor al calcular estadísticas del período');
+    }
+  }
+
+  /**
+   * Obtener estadísticas comparativas entre períodos
+   */
+  public async getStatsComparison(period: '7d' | '30d' | '90d' = '7d'): Promise<{
+    current: {
+      period: {
+        startDate: string;
+        endDate: string;
+      };
+      stats: {
+        delivery_rate: number;
+        open_rate: number;
+        response_rate: number;
+        total_alerts: number;
+        total_notification_responses: number;
+        total_read: number;
+        total_survey_alerts: number;
+        total_survey_responses: number;
+      };
+    };
+    previous: {
+      period: {
+        startDate: string;
+        endDate: string;
+      };
+      stats: {
+        delivery_rate: number;
+        open_rate: number;
+        response_rate: number;
+        total_alerts: number;
+        total_notification_responses: number;
+        total_read: number;
+        total_survey_alerts: number;
+        total_survey_responses: number;
+      };
+    };
+    changes: {
+      delivery_rate: number;
+      open_rate: number;
+      response_rate: number;
+    };
+  }> {
+    try {
+      // Calcular días del período
+      const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
+
+      // Período actual
+      const now = new Date();
+      const currentEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      const currentStartDate = new Date(currentEndDate);
+      currentStartDate.setDate(currentStartDate.getDate() - days + 1);
+      currentStartDate.setHours(0, 0, 0, 0);
+
+      // Período anterior (el mismo número de días antes del período actual)
+      const previousEndDate = new Date(currentStartDate);
+      previousEndDate.setDate(previousEndDate.getDate() - 1);
+      previousEndDate.setHours(23, 59, 59, 999);
+      const previousStartDate = new Date(previousEndDate);
+      previousStartDate.setDate(previousStartDate.getDate() - days + 1);
+      previousStartDate.setHours(0, 0, 0, 0);
+
+      // Calcular estadísticas para ambos períodos
+      const [currentStats, previousStats] = await Promise.all([
+        this.getStatsForPeriod(currentStartDate, currentEndDate),
+        this.getStatsForPeriod(previousStartDate, previousEndDate)
+      ]);
+
+      // Calcular cambios porcentuales
+      const calculateChange = (current: number, previous: number): number => {
+        if (previous === 0) return current > 0 ? 100 : 0;
+        return Math.round(((current - previous) / previous) * 100 * 100) / 100;
+      };
+
+      const changes = {
+        delivery_rate: calculateChange(currentStats.delivery_rate, previousStats.delivery_rate),
+        open_rate: calculateChange(currentStats.open_rate, previousStats.open_rate),
+        response_rate: calculateChange(currentStats.response_rate, previousStats.response_rate)
+      };
+
+      return {
+        current: {
+          period: {
+            startDate: currentStartDate.toISOString(),
+            endDate: currentEndDate.toISOString()
+          },
+          stats: currentStats
+        },
+        previous: {
+          period: {
+            startDate: previousStartDate.toISOString(),
+            endDate: previousEndDate.toISOString()
+          },
+          stats: previousStats
+        },
+        changes: changes
+      };
+    } catch (error) {
+      console.error('Error al obtener comparación de estadísticas:', error);
+      throw new Error('Error interno del servidor al obtener comparación de estadísticas');
+    }
+  }
 }
 
 // Exportar instancia singleton del servicio

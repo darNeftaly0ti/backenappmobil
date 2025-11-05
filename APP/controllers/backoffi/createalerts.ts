@@ -416,17 +416,36 @@ export class CreateAlertController {
   /**
    * Obtener estadísticas generales de notificaciones
    * GET /api/users/alerts/stats
+   * Query params: ?period=7d|30d|90d (opcional, default: 7d)
    */
   public async getStats(req: Request, res: Response): Promise<void> {
     try {
-      // Obtener estadísticas usando el servicio
-      const stats = await createAlertService.getStats();
+      const { period } = req.query;
+      
+      // Validar período
+      const validPeriod = period === '7d' || period === '30d' || period === '90d' 
+        ? period as '7d' | '30d' | '90d'
+        : '7d';
 
-      res.status(200).json({
-        success: true,
-        message: 'Estadísticas obtenidas exitosamente',
-        stats: stats
-      });
+      // Si hay parámetro period, retornar comparación
+      if (period) {
+        const comparison = await createAlertService.getStatsComparison(validPeriod);
+        
+        res.status(200).json({
+          success: true,
+          message: 'Comparación de estadísticas obtenida exitosamente',
+          ...comparison
+        });
+      } else {
+        // Si no hay parámetro, retornar estadísticas generales (sin período)
+        const stats = await createAlertService.getStats();
+
+        res.status(200).json({
+          success: true,
+          message: 'Estadísticas obtenidas exitosamente',
+          stats: stats
+        });
+      }
 
     } catch (error) {
       console.error('Error al obtener estadísticas:', error);
