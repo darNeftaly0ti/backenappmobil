@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { createAlertService, ICreateAlertData } from '../../services/backoffi/cretealert';
+import { notificationResponseService } from '../../services/backoffi/notificationresponses';
 
 // Controlador para creación y gestión de notificaciones/alertas
 export class CreateAlertController {
@@ -58,8 +59,6 @@ export class CreateAlertController {
             image_url: result.alert.image_url,
             action_button: result.alert.action_button,
             expires_at: result.alert.expires_at,
-            read: result.alert.read,
-            read_at: result.alert.read_at,
             metadata: result.alert.metadata,
             created_at: result.alert.created_at,
             updated_at: result.alert.updated_at
@@ -81,8 +80,6 @@ export class CreateAlertController {
             image_url: alert.image_url,
             action_button: alert.action_button,
             expires_at: alert.expires_at,
-            read: alert.read,
-            read_at: alert.read_at,
             metadata: alert.metadata,
             created_at: alert.created_at,
             updated_at: alert.updated_at
@@ -159,11 +156,36 @@ export class CreateAlertController {
       // Obtener notificaciones usando el servicio
       const alerts = await createAlertService.getUserAlerts(userId, filters);
 
+      // Obtener estados de lectura desde notification_responses
+      const alertIds = alerts.map(alert => alert._id.toString());
+      const responses = await notificationResponseService.getUserNotificationResponses(userId, {
+        limit: 1000
+      });
+
+      // Crear mapa de estados de lectura
+      const responseMap = new Map();
+      responses.forEach(response => {
+        responseMap.set(response.alert_id.toString(), {
+          read: response.read,
+          read_at: response.read_at
+        });
+      });
+
+      // Agregar estado de lectura a cada notificación
+      const alertsWithReadStatus = alerts.map(alert => {
+        const readStatus = responseMap.get(alert._id.toString()) || { read: false, read_at: null };
+        return {
+          ...alert.toObject(),
+          read: readStatus.read,
+          read_at: readStatus.read_at
+        };
+      });
+
       res.status(200).json({
         success: true,
         message: 'Notificaciones obtenidas exitosamente',
-        alerts: alerts,
-        total: alerts.length,
+        alerts: alertsWithReadStatus,
+        total: alertsWithReadStatus.length,
         filters: filters
       });
 

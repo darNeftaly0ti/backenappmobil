@@ -1,6 +1,7 @@
 import mongoose, { Document, Schema } from 'mongoose';
 import { config } from '../../configs/config';
 import { userService } from '../services';
+import { notificationResponseService } from './notificationresponses';
 
 // Interface para los datos de creación de notificación
 export interface ICreateAlertData {
@@ -92,8 +93,6 @@ export interface IAlert extends Document {
     action?: string;
   };
   expires_at?: Date;
-  read: boolean;
-  read_at?: Date;
   metadata?: any;
   created_at: Date;
   updated_at: Date;
@@ -188,14 +187,6 @@ const alertSchema = new Schema<IAlert>({
     type: Date,
     index: true
   },
-  read: {
-    type: Boolean,
-    default: false,
-    index: true
-  },
-  read_at: {
-    type: Date
-  },
   metadata: {
     type: Schema.Types.Mixed,
     default: {}
@@ -210,7 +201,6 @@ const alertSchema = new Schema<IAlert>({
     transform: function(doc, ret: any) {
       if (ret.created_at) ret.created_at = new Date(ret.created_at).toISOString();
       if (ret.updated_at) ret.updated_at = new Date(ret.updated_at).toISOString();
-      if (ret.read_at) ret.read_at = new Date(ret.read_at).toISOString();
       if (ret.expires_at) ret.expires_at = new Date(ret.expires_at).toISOString();
       return ret;
     }
@@ -218,7 +208,7 @@ const alertSchema = new Schema<IAlert>({
 });
 
 // Índices para optimizar consultas
-alertSchema.index({ user_id: 1, read: 1, created_at: -1 });
+alertSchema.index({ user_id: 1, created_at: -1 });
 alertSchema.index({ user_id: 1, type: 1, created_at: -1 });
 alertSchema.index({ user_id: 1, priority: 1, created_at: -1 });
 alertSchema.index({ expires_at: 1 }, { expireAfterSeconds: 0 }); // Auto-eliminar notificaciones expiradas
@@ -411,6 +401,19 @@ export class CreateAlertService {
       // Insertar todas las notificaciones de una vez (más eficiente)
       const savedAlerts = await this.AlertModel.insertMany(alertsToCreate) as IAlert[];
 
+      // Crear registros en notification_responses para cada notificación creada
+      try {
+        for (const alert of savedAlerts) {
+          await notificationResponseService.createNotificationResponse(
+            alert._id.toString(),
+            alert.user_id.toString()
+          );
+        }
+      } catch (error) {
+        console.error('Error al crear registros de respuesta de notificación:', error);
+        // Continuar aunque haya error en la creación de responses
+      }
+
       // Si es un solo usuario, retornar como antes
       if (savedAlerts.length === 1) {
         return {
@@ -474,10 +477,6 @@ export class CreateAlertService {
     try {
       const query: any = { user_id: userId };
 
-      if (filters?.read !== undefined) {
-        query.read = filters.read;
-      }
-
       if (filters?.type) {
         query.type = filters.type;
       }
@@ -501,6 +500,28 @@ export class CreateAlertService {
         .limit(limit)
         .skip(skip);
 
+      // Si se filtra por read, obtener los estados de lectura desde notification_responses
+      if (filters?.read !== undefined) {
+        const alertIds = alerts.map(alert => alert._id.toString());
+        const responses = await notificationResponseService.getUserNotificationResponses(userId, {
+          read: filters.read,
+          limit: 1000 // Obtener todas las respuestas para filtrar
+        });
+        
+        // Filtrar alertas según el estado de lectura
+        const responseMap = new Map();
+        responses.forEach(response => {
+          responseMap.set(response.alert_id.toString(), response.read);
+        });
+
+        const filteredAlerts = alerts.filter(alert => {
+          const isRead = responseMap.get(alert._id.toString()) || false;
+          return filters.read === isRead;
+        });
+
+        return filteredAlerts;
+      }
+
       return alerts;
     } catch (error) {
       console.error('Error al obtener notificaciones:', error);
@@ -513,15 +534,15 @@ export class CreateAlertService {
    */
   public async markAsRead(alertId: string, userId: string): Promise<boolean> {
     try {
-      const result = await this.AlertModel.updateOne(
-        { _id: alertId, user_id: userId },
-        { 
-          read: true,
-          read_at: new Date()
-        }
-      );
+      // Verificar que la notificación existe y pertenece al usuario
+      const alert = await this.AlertModel.findOne({ _id: alertId, user_id: userId });
+      if (!alert) {
+        return false;
+      }
 
-      return result.modifiedCount > 0;
+      // Marcar como leída en notification_responses
+      const success = await notificationResponseService.markAsRead(alertId, userId);
+      return success;
     } catch (error) {
       console.error('Error al marcar notificación como leída:', error);
       throw new Error('Error interno del servidor al marcar notificación como leída');
@@ -533,15 +554,13 @@ export class CreateAlertService {
    */
   public async markAllAsRead(userId: string): Promise<number> {
     try {
-      const result = await this.AlertModel.updateMany(
-        { user_id: userId, read: false },
-        { 
-          read: true,
-          read_at: new Date()
-        }
-      );
+      // Obtener todas las notificaciones del usuario
+      const alerts = await this.AlertModel.find({ user_id: userId });
+      const alertIds = alerts.map(alert => alert._id.toString());
 
-      return result.modifiedCount;
+      // Marcar todas como leídas en notification_responses
+      const count = await notificationResponseService.markAllAsRead(userId, alertIds);
+      return count;
     } catch (error) {
       console.error('Error al marcar todas las notificaciones como leídas:', error);
       throw new Error('Error interno del servidor al marcar notificaciones como leídas');
@@ -566,9 +585,9 @@ export class CreateAlertService {
    */
   public async getUnreadCount(userId: string): Promise<number> {
     try {
-      const count = await this.AlertModel.countDocuments({
+      // Obtener todas las notificaciones del usuario (no expiradas)
+      const alerts = await this.AlertModel.find({
         user_id: userId,
-        read: false,
         $or: [
           { expires_at: { $exists: false } },
           { expires_at: null },
@@ -576,6 +595,10 @@ export class CreateAlertService {
         ]
       });
 
+      const alertIds = alerts.map(alert => alert._id.toString());
+
+      // Obtener contador de no leídas desde notification_responses
+      const count = await notificationResponseService.getUnreadCount(userId, alertIds);
       return count;
     } catch (error) {
       console.error('Error al obtener contador de notificaciones no leídas:', error);
