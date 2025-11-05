@@ -5,6 +5,7 @@ import { smartOLTController } from '../controllers/smartOLT/getconsumer';
 import { base64PhotoController } from '../controllers/smartOLT/b64photo';
 import { createUserController } from '../controllers/backoffi/createuser';
 import { createAlertController } from '../controllers/backoffi/createalerts';
+import { saveSurveyResponseController } from '../controllers/backoffi/saveresponsies';
 
 // Crear instancia del router
 const router = Router();
@@ -28,6 +29,17 @@ router.patch('/alerts/:alertId/mark-read', createAlertController.markAsRead); //
 router.put('/alerts/:alertId/mark-read', createAlertController.markAsRead); // PUT /api/users/alerts/:alertId/mark-read
 router.delete('/alerts/:alertId', createAlertController.deleteAlert); // DELETE /api/users/alerts/:alertId
 router.get('/alerts/:userId', createAlertController.getUserAlerts); // GET /api/users/alerts/:userId (debe ir al final)
+
+// Rutas de respuestas de encuestas (deben ir antes de las rutas genéricas /:id)
+// IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas genéricas
+router.post('/survey-responses', saveSurveyResponseController.saveSurveyResponse); // POST /api/users/survey-responses
+router.get('/survey-responses/health', saveSurveyResponseController.healthCheck); // GET /api/users/survey-responses/health
+router.get('/survey-responses/:surveyId/check/:userId', saveSurveyResponseController.checkUserResponse); // GET /api/users/survey-responses/:surveyId/check/:userId
+router.get('/survey-responses/:surveyId/user/:userId', saveSurveyResponseController.getSurveyResponseByUser); // GET /api/users/survey-responses/:surveyId/user/:userId
+router.get('/survey-responses/:surveyId/stats', saveSurveyResponseController.getSurveyStats); // GET /api/users/survey-responses/:surveyId/stats
+router.get('/survey-responses/user/:userId', saveSurveyResponseController.getUserSurveyResponses); // GET /api/users/survey-responses/user/:userId
+router.get('/survey-responses/:surveyId', saveSurveyResponseController.getSurveyResponses); // GET /api/users/survey-responses/:surveyId (genérica, debe ir al final)
+router.delete('/survey-responses/:responseId', saveSurveyResponseController.deleteSurveyResponse); // DELETE /api/users/survey-responses/:responseId
 
 // Ruta de prueba para verificar que el router funciona (debe ir antes de /:id)
 router.get('/health', (req, res) => {
