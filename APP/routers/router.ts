@@ -4,6 +4,7 @@ import { activityLogController } from '../controllers/activity_logs';
 import { smartOLTController } from '../controllers/smartOLT/getconsumer';
 import { base64PhotoController } from '../controllers/smartOLT/b64photo';
 import { createUserController } from '../controllers/backoffi/createuser';
+import { createAlertController } from '../controllers/backoffi/createalerts';
 
 // Crear instancia del router
 const router = Router();
@@ -15,6 +16,18 @@ router.post('/login', authController.login); // POST /api/users/login
 router.post('/create', createUserController.createUser); // POST /api/users/create
 router.post('/create-minimal', createUserController.createUserMinimal); // POST /api/users/create-minimal
 router.get('/create/health', createUserController.healthCheck); // GET /api/users/create/health
+
+// Rutas de notificaciones/alertas (deben ir antes de las rutas genéricas /:id)
+// IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas genéricas
+router.post('/alerts', createAlertController.createAlert); // POST /api/users/alerts
+router.get('/alerts/health', createAlertController.healthCheck); // GET /api/users/alerts/health
+router.patch('/alerts/mark-all-read', createAlertController.markAllAsRead); // PATCH /api/users/alerts/mark-all-read
+router.put('/alerts/mark-all-read', createAlertController.markAllAsRead); // PUT /api/users/alerts/mark-all-read
+router.get('/alerts/:userId/unread-count', createAlertController.getUnreadCount); // GET /api/users/alerts/:userId/unread-count
+router.patch('/alerts/:alertId/mark-read', createAlertController.markAsRead); // PATCH /api/users/alerts/:alertId/mark-read
+router.put('/alerts/:alertId/mark-read', createAlertController.markAsRead); // PUT /api/users/alerts/:alertId/mark-read
+router.delete('/alerts/:alertId', createAlertController.deleteAlert); // DELETE /api/users/alerts/:alertId
+router.get('/alerts/:userId', createAlertController.getUserAlerts); // GET /api/users/alerts/:userId (debe ir al final)
 
 // Ruta de prueba para verificar que el router funciona (debe ir antes de /:id)
 router.get('/health', (req, res) => {
