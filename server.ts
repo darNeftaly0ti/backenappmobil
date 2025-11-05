@@ -8,11 +8,34 @@ const app = express();
 const serverConfig = config();
 
 // Middleware para CORS
+// Función para validar orígenes permitidos (solo strings, sin regex)
+const corsOriginHandler = (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+  // Permitir solicitudes sin origen (como Postman, curl, etc.)
+  if (!origin) {
+    return callback(null, true);
+  }
+
+  const allowedOrigins = serverConfig.server.allowedOrigins;
+  
+  // Verificar si el origen está en la lista permitida
+  // Solo manejar strings (sin regex para mayor seguridad)
+  const allowedOriginsStrings = allowedOrigins.filter((origin) => typeof origin === 'string') as string[];
+  
+  if (allowedOriginsStrings.includes(origin)) {
+    return callback(null, true);
+  }
+
+  // Si no coincide con ningún origen permitido, rechazar
+  console.warn(` Origen CORS rechazado: ${origin}`);
+  callback(new Error('Not allowed by CORS'));
+};
+
 app.use(cors({
-  origin: serverConfig.server.allowedOrigins,
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
+  origin: corsOriginHandler,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: true,
+  optionsSuccessStatus: 200
 }));
 
 // Middleware para parsear JSON

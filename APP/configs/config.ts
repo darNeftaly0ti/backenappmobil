@@ -17,13 +17,21 @@ export const config = () => {
       nodeEnv: process.env.NODE_ENV || 'development',
       host: '0.0.0.0', // Escuchar en todas las interfaces de red
       allowedOrigins: [
+        // Orígenes de desarrollo local (localhost)
         'http://localhost:3000',
         'http://localhost:3005',
-        'http://192.168.1.6:3005',
-        'http://192.168.101.1:3005',
-        'http://192.168.101.1:3000',
-        // Permitir cualquier IP de la red 192.168.101.x
-        /^http:\/\/192\.168\.101\.\d+:?\d*$/
+        'http://localhost:4028', // Angular por defecto
+        'http://localhost:5173', // Vite por defecto
+        'http://localhost:8080', // Vue CLI por defecto
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:3005',
+        'http://127.0.0.1:4028',
+        'http://127.0.0.1:5173',
+        'http://127.0.0.1:8080',
+        
+        // TODO: Agregar aquí los dominios de producción cuando estén definidos
+        // Ejemplo: 'https://tu-dominio-frontend.com',
+        // Ejemplo: 'https://www.tu-dominio-frontend.com',
       ]
     },
 
