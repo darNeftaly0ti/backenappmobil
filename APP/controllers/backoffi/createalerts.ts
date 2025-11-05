@@ -14,10 +14,19 @@ export class CreateAlertController {
       const alertData: ICreateAlertData = req.body;
 
       // Validar que se envíen los datos mínimos requeridos
-      if (!alertData.user_id || !alertData.type || !alertData.title || !alertData.message) {
+      if (!alertData.type || !alertData.title || !alertData.message) {
         res.status(400).json({
           success: false,
-          message: 'Campos requeridos faltantes: user_id, type, title, message'
+          message: 'Campos requeridos faltantes: type, title, message'
+        });
+        return;
+      }
+
+      // Validar que se especifique al menos un destinatario
+      if (!alertData.user_id && !alertData.user_ids && !alertData.send_to_all) {
+        res.status(400).json({
+          success: false,
+          message: 'Debe especificar al menos un destinatario: user_id, user_ids, o send_to_all'
         });
         return;
       }
@@ -25,12 +34,17 @@ export class CreateAlertController {
       // Crear notificación usando el servicio
       const result = await createAlertService.createAlert(alertData);
 
-      if (result.success && result.alert) {
-        // Notificación creada exitosamente
-        res.status(201).json({
+      if (result.success) {
+        // Notificación(es) creada(s) exitosamente
+        const responseData: any = {
           success: true,
           message: result.message,
-          alert: {
+          total_created: result.total_created || (result.alert ? 1 : (result.alerts ? result.alerts.length : 0))
+        };
+
+        // Si es un solo usuario, retornar 'alert'
+        if (result.alert) {
+          responseData.alert = {
             _id: result.alert._id,
             user_id: result.alert.user_id,
             type: result.alert.type,
@@ -49,8 +63,33 @@ export class CreateAlertController {
             metadata: result.alert.metadata,
             created_at: result.alert.created_at,
             updated_at: result.alert.updated_at
-          }
-        });
+          };
+        }
+        // Si son múltiples usuarios, retornar 'alerts'
+        else if (result.alerts && result.alerts.length > 0) {
+          responseData.alerts = result.alerts.map((alert: any) => ({
+            _id: alert._id,
+            user_id: alert.user_id,
+            type: alert.type,
+            title: alert.title,
+            message: alert.message,
+            priority: alert.priority,
+            category: alert.category,
+            data: alert.data,
+            icon: alert.icon,
+            color: alert.color,
+            image_url: alert.image_url,
+            action_button: alert.action_button,
+            expires_at: alert.expires_at,
+            read: alert.read,
+            read_at: alert.read_at,
+            metadata: alert.metadata,
+            created_at: alert.created_at,
+            updated_at: alert.updated_at
+          }));
+        }
+
+        res.status(201).json(responseData);
       } else {
         // Error al crear notificación
         let statusCode = 400;

@@ -1,13 +1,18 @@
 import mongoose, { Document, Schema } from 'mongoose';
 import { config } from '../../configs/config';
+import { userService } from '../services';
 
 // Interface para los datos de creación de notificación
 export interface ICreateAlertData {
   // Campos requeridos
-  user_id: string | mongoose.Types.ObjectId; // Usuario destinatario
   type: 'survey' | 'message' | 'reminder' | 'announcement' | 'warning' | 'info' | 'system';
   title: string;
   message: string;
+  
+  // Destinatarios (al menos uno debe estar presente)
+  user_id?: string | mongoose.Types.ObjectId; // Usuario destinatario único
+  user_ids?: (string | mongoose.Types.ObjectId)[]; // Múltiples usuarios destinatarios
+  send_to_all?: boolean; // Enviar a todos los usuarios activos
   
   // Campos opcionales
   priority?: 'low' | 'medium' | 'high' | 'urgent';
@@ -97,8 +102,10 @@ export interface IAlert extends Document {
 // Interface para el resultado de la creación
 export interface ICreateAlertResult {
   success: boolean;
-  alert?: IAlert;
+  alert?: IAlert; // Para un solo usuario
+  alerts?: IAlert[]; // Para múltiples usuarios
   message: string;
+  total_created?: number; // Número de notificaciones creadas
   error?: any;
 }
 
@@ -241,8 +248,20 @@ export class CreateAlertService {
    * Validar datos requeridos para crear una notificación
    */
   private validateAlertData(alertData: ICreateAlertData): { isValid: boolean; message: string } {
-    if (!alertData.user_id) {
-      return { isValid: false, message: 'El ID del usuario es requerido' };
+    // Validar que al menos un destinatario esté presente
+    if (!alertData.user_id && !alertData.user_ids && !alertData.send_to_all) {
+      return { isValid: false, message: 'Debe especificar al menos un destinatario: user_id, user_ids, o send_to_all' };
+    }
+
+    // Validar que no se envíen múltiples opciones de destinatario al mismo tiempo
+    const recipientOptions = [
+      alertData.user_id ? 1 : 0,
+      alertData.user_ids && alertData.user_ids.length > 0 ? 1 : 0,
+      alertData.send_to_all ? 1 : 0
+    ].filter(x => x > 0).length;
+
+    if (recipientOptions > 1) {
+      return { isValid: false, message: 'Solo puede especificar una opción de destinatario: user_id, user_ids, o send_to_all' };
     }
 
     if (!alertData.type) {
@@ -281,7 +300,37 @@ export class CreateAlertService {
   }
 
   /**
-   * Crear una nueva notificación
+   * Obtener lista de IDs de usuarios destinatarios
+   */
+  private async getRecipientUserIds(alertData: ICreateAlertData): Promise<string[]> {
+    let userIds: string[] = [];
+
+    // Caso 1: Un solo usuario
+    if (alertData.user_id) {
+      userIds = [alertData.user_id.toString()];
+    }
+    // Caso 2: Múltiples usuarios
+    else if (alertData.user_ids && alertData.user_ids.length > 0) {
+      userIds = alertData.user_ids.map(id => id.toString());
+    }
+    // Caso 3: Todos los usuarios activos
+    else if (alertData.send_to_all) {
+      try {
+        const allUsers = await userService.getAllUsers();
+        // Filtrar solo usuarios activos
+        const activeUsers = allUsers.filter(user => user.account_status === 'ACTIVE');
+        userIds = activeUsers.map(user => user._id.toString());
+      } catch (error) {
+        console.error('Error al obtener todos los usuarios:', error);
+        throw new Error('Error al obtener lista de usuarios activos');
+      }
+    }
+
+    return userIds;
+  }
+
+  /**
+   * Crear una nueva notificación (soporta un usuario, múltiples usuarios o todos los usuarios)
    */
   public async createAlert(alertData: ICreateAlertData): Promise<ICreateAlertResult> {
     try {
@@ -294,10 +343,19 @@ export class CreateAlertService {
         };
       }
 
-      // Preparar datos de la notificación
+      // Obtener lista de usuarios destinatarios
+      const recipientUserIds = await this.getRecipientUserIds(alertData);
+
+      if (recipientUserIds.length === 0) {
+        return {
+          success: false,
+          message: 'No se encontraron usuarios destinatarios'
+        };
+      }
+
+      // Preparar datos base de la notificación (sin user_id)
       const now = new Date();
-      const alertObject: any = {
-        user_id: alertData.user_id,
+      const baseAlertData: any = {
         type: alertData.type,
         title: alertData.title.trim(),
         message: alertData.message.trim(),
@@ -309,27 +367,27 @@ export class CreateAlertService {
 
       // Agregar campos opcionales
       if (alertData.category) {
-        alertObject.category = alertData.category.trim();
+        baseAlertData.category = alertData.category.trim();
       }
 
       if (alertData.data) {
-        alertObject.data = alertData.data;
+        baseAlertData.data = alertData.data;
       }
 
       if (alertData.icon) {
-        alertObject.icon = alertData.icon.trim();
+        baseAlertData.icon = alertData.icon.trim();
       }
 
       if (alertData.color) {
-        alertObject.color = alertData.color.trim();
+        baseAlertData.color = alertData.color.trim();
       }
 
       if (alertData.image_url) {
-        alertObject.image_url = alertData.image_url.trim();
+        baseAlertData.image_url = alertData.image_url.trim();
       }
 
       if (alertData.action_button) {
-        alertObject.action_button = {
+        baseAlertData.action_button = {
           text: alertData.action_button.text.trim(),
           url: alertData.action_button.url?.trim(),
           action: alertData.action_button.action?.trim()
@@ -337,21 +395,38 @@ export class CreateAlertService {
       }
 
       if (alertData.expires_at) {
-        alertObject.expires_at = new Date(alertData.expires_at);
+        baseAlertData.expires_at = new Date(alertData.expires_at);
       }
 
       if (alertData.metadata) {
-        alertObject.metadata = alertData.metadata;
+        baseAlertData.metadata = alertData.metadata;
       }
 
-      // Crear la notificación en la base de datos
-      const newAlert = new this.AlertModel(alertObject);
-      const savedAlert = await newAlert.save();
+      // Crear notificaciones para cada usuario destinatario
+      const alertsToCreate = recipientUserIds.map(userId => ({
+        ...baseAlertData,
+        user_id: userId
+      }));
 
+      // Insertar todas las notificaciones de una vez (más eficiente)
+      const savedAlerts = await this.AlertModel.insertMany(alertsToCreate) as IAlert[];
+
+      // Si es un solo usuario, retornar como antes
+      if (savedAlerts.length === 1) {
+        return {
+          success: true,
+          alert: savedAlerts[0] as IAlert,
+          message: 'Notificación creada exitosamente',
+          total_created: 1
+        };
+      }
+
+      // Si son múltiples usuarios, retornar array
       return {
         success: true,
-        alert: savedAlert,
-        message: 'Notificación creada exitosamente'
+        alerts: savedAlerts as IAlert[],
+        message: `Notificaciones creadas exitosamente para ${savedAlerts.length} usuario(s)`,
+        total_created: savedAlerts.length
       };
 
     } catch (error: any) {
