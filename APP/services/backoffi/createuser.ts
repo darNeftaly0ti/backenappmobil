@@ -169,6 +169,11 @@ export class CreateUserService {
         };
       }
 
+      // Normalizar ONU_sn: convertir cadenas vacías o solo espacios a null
+      const normalizedONUSn = userData.ONU_sn 
+        ? (userData.ONU_sn.trim() || null)
+        : null;
+
       // Verificar si el usuario ya existe (por email o username)
       const existingUser = await this.UserModel.findOne({
         $or: [
@@ -183,6 +188,20 @@ export class CreateUserService {
           success: false,
           message: `Ya existe un usuario con ese ${field === 'email' ? 'correo electrónico' : 'nombre de usuario'}`
         };
+      }
+
+      // Verificar duplicado de ONU_sn solo si no es null (evitar duplicados de cadenas vacías)
+      if (normalizedONUSn) {
+        const existingUserWithONU = await this.UserModel.findOne({
+          ONU_sn: normalizedONUSn
+        });
+
+        if (existingUserWithONU) {
+          return {
+            success: false,
+            message: 'Ya existe un usuario con ese ONU_sn'
+          };
+        }
       }
 
       // Preparar datos del usuario con valores por defecto
@@ -203,9 +222,12 @@ export class CreateUserService {
         tags: userData.tags || []
       };
 
-      // Agregar campos de SmartOLT si están presentes
-      if (userData.ONU_sn) {
-        userObject.ONU_sn = userData.ONU_sn.trim();
+      // Agregar campos de SmartOLT (normalizar ONU_sn vacío a null)
+      if (normalizedONUSn) {
+        userObject.ONU_sn = normalizedONUSn;
+      } else {
+        // Si es null o vacío, no agregarlo o establecerlo como null explícitamente
+        userObject.ONU_sn = null;
       }
       if (userData.olt_name) {
         userObject.olt_name = userData.olt_name.trim();
@@ -241,7 +263,7 @@ export class CreateUserService {
       if (userData.network) {
         userObject.network = {
           router_model: userData.network.router_model || '',
-          router_mac: userData.network.router_mac || userData.ONU_sn || '',
+          router_mac: userData.network.router_mac || normalizedONUSn || '',
           router_ip: userData.network.router_ip || '192.168.1.1',
           ssid: userData.network.ssid || `RouterApp_WiFi_${userData.first_name}`,
           password_hint: userData.network.password_hint || 'Contraseña segura',
