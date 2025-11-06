@@ -466,6 +466,56 @@ export class ActivityLogService {
       throw new Error('Error interno del servidor al buscar logs');
     }
   }
+
+  /**
+   * Obtener logs en tiempo real (más recientes desde un timestamp o ID)
+   * @param since Timestamp ISO o Date desde cuando obtener logs (opcional)
+   * @param lastId Último ID recibido, para obtener logs más recientes que este (opcional)
+   * @param userId ID de usuario para filtrar (opcional)
+   * @param limit Número máximo de logs a retornar (por defecto: 100)
+   */
+  public async getRecentActivityLogs(
+    since?: string | Date,
+    lastId?: string,
+    userId?: string,
+    limit: number = 100
+  ): Promise<IActivityLog[]> {
+    try {
+      const query: any = {};
+
+      // Filtrar por usuario si se proporciona
+      if (userId) {
+        query.user_id = userId;
+      }
+
+      // Si se proporciona lastId, obtener logs más recientes que ese ID
+      if (lastId) {
+        try {
+          query._id = { $gt: new mongoose.Types.ObjectId(lastId) };
+        } catch (error) {
+          // Si lastId no es un ObjectId válido, usar timestamp en su lugar
+          console.warn('lastId no es un ObjectId válido, ignorando:', lastId);
+        }
+      } 
+      // Si se proporciona since, obtener logs más recientes que ese timestamp
+      else if (since) {
+        const sinceDate = since instanceof Date ? since : new Date(since);
+        if (!isNaN(sinceDate.getTime())) {
+          query.timestamp = { $gt: sinceDate };
+        }
+      }
+      // Si no se proporciona ninguno, obtener los últimos logs (limit)
+
+      const logs = await ActivityLog.find(query)
+        .sort({ timestamp: -1 }) // Más recientes primero
+        .limit(limit);
+
+      return logs;
+    } catch (error) {
+      console.error('Error al obtener logs recientes:', error);
+      throw new Error('Error interno del servidor al obtener logs recientes');
+    }
+  }
 }
 
 // Exportar instancia singleton del servicio

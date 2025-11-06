@@ -72,6 +72,7 @@ router.post('/activity-logs', activityLogController.createActivityLog);
 router.get('/activity-logs', activityLogController.getAllActivityLogs);
 router.get('/activity-logs/health', activityLogController.healthCheck);
 router.get('/activity-logs/stats', activityLogController.getActivityStats);
+router.get('/activity-logs/recent', activityLogController.getRecentActivityLogs); // GET /api/users/activity-logs/recent?since=ISO&last_id=ID&user_id=ID&limit=100
 router.get('/activity-logs/user/:userId', activityLogController.getActivityLogsByUser);
 router.get('/activity-logs/action/:action', activityLogController.getActivityLogsByAction);
 router.get('/activity-logs/severity/:severity', activityLogController.getActivityLogsBySeverity);

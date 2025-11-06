@@ -108,7 +108,7 @@ export class ActivityLogController {
   public async getActivityLogsByUser(req: Request, res: Response): Promise<void> {
     try {
       const { userId } = req.params;
-      const { limit = 50, skip = 0 } = req.query;
+      const { limit, skip } = req.query;
 
       if (!userId) {
         res.status(400).json({
@@ -118,10 +118,31 @@ export class ActivityLogController {
         return;
       }
 
+      // Validar y convertir límites (sin límite máximo hardcodeado)
+      const limitNum = limit ? parseInt(limit as string, 10) : 50;
+      const skipNum = skip ? parseInt(skip as string, 10) : 0;
+
+      // Validar que los valores sean números válidos
+      if (isNaN(limitNum) || limitNum < 0) {
+        res.status(400).json({
+          success: false,
+          message: 'El parámetro limit debe ser un número válido mayor o igual a 0'
+        });
+        return;
+      }
+
+      if (isNaN(skipNum) || skipNum < 0) {
+        res.status(400).json({
+          success: false,
+          message: 'El parámetro skip debe ser un número válido mayor o igual a 0'
+        });
+        return;
+      }
+
       const logs = await activityLogService.getActivityLogsByUser(
         userId,
-        Number(limit),
-        Number(skip)
+        limitNum,
+        skipNum
       );
 
       res.status(200).json({
@@ -129,8 +150,8 @@ export class ActivityLogController {
         message: 'Logs de actividad obtenidos exitosamente',
         data: logs,
         total: logs.length,
-        limit: Number(limit),
-        skip: Number(skip)
+        limit: limitNum,
+        skip: skipNum
       });
 
     } catch (error) {
@@ -244,8 +265,8 @@ export class ActivityLogController {
         status,
         start_date,
         end_date,
-        limit = 50,
-        skip = 0
+        limit,
+        skip
       } = req.query;
 
       // Construir filtros
@@ -258,8 +279,30 @@ export class ActivityLogController {
       if (status) filters.status = status;
       if (start_date) filters.start_date = new Date(start_date as string);
       if (end_date) filters.end_date = new Date(end_date as string);
-      if (limit) filters.limit = Number(limit);
-      if (skip) filters.skip = Number(skip);
+      
+      // Validar y convertir límites (sin límite máximo hardcodeado)
+      const limitNum = limit ? parseInt(limit as string, 10) : 50;
+      const skipNum = skip ? parseInt(skip as string, 10) : 0;
+
+      // Validar que los valores sean números válidos
+      if (limit && (isNaN(limitNum) || limitNum < 0)) {
+        res.status(400).json({
+          success: false,
+          message: 'El parámetro limit debe ser un número válido mayor o igual a 0'
+        });
+        return;
+      }
+
+      if (skip && (isNaN(skipNum) || skipNum < 0)) {
+        res.status(400).json({
+          success: false,
+          message: 'El parámetro skip debe ser un número válido mayor o igual a 0'
+        });
+        return;
+      }
+
+      filters.limit = limitNum;
+      filters.skip = skipNum;
 
       const logs = await activityLogService.getAllActivityLogs(filters);
 
@@ -269,8 +312,8 @@ export class ActivityLogController {
         data: logs,
         total: logs.length,
         filters: filters,
-        limit: Number(limit),
-        skip: Number(skip)
+        limit: limitNum,
+        skip: skipNum
       });
 
     } catch (error) {
@@ -425,6 +468,83 @@ export class ActivityLogController {
       res.status(500).json({
         success: false,
         message: 'Error interno del servidor al obtener log'
+      });
+    }
+  }
+
+  /**
+   * Obtener logs en tiempo real (más recientes)
+   * GET /api/users/activity-logs/recent
+   * Query Parameters:
+   *   - since (opcional): ISO timestamp - Obtener logs más recientes que este timestamp
+   *   - last_id (opcional): ObjectId - Obtener logs más recientes que este ID
+   *   - user_id (opcional): ID de usuario para filtrar
+   *   - limit (opcional): Número máximo de logs (por defecto: 100)
+   */
+  public async getRecentActivityLogs(req: Request, res: Response): Promise<void> {
+    try {
+      const { since, last_id, user_id, limit } = req.query;
+
+      // Validar y convertir límite
+      const limitNum = limit ? parseInt(limit as string, 10) : 100;
+      
+      if (limit && (isNaN(limitNum) || limitNum < 0 || limitNum > 1000)) {
+        res.status(400).json({
+          success: false,
+          message: 'El parámetro limit debe ser un número válido entre 0 y 1000'
+        });
+        return;
+      }
+
+      // Validar que solo se proporcione uno: since o last_id
+      if (since && last_id) {
+        res.status(400).json({
+          success: false,
+          message: 'Solo se puede proporcionar "since" o "last_id", no ambos'
+        });
+        return;
+      }
+
+      // Convertir parámetros
+      const sinceDate = since ? (since instanceof Date ? since : new Date(since as string)) : undefined;
+      const lastId = last_id ? (last_id as string) : undefined;
+      const userId = user_id ? (user_id as string) : undefined;
+
+      // Validar formato de fecha si se proporciona since
+      if (since && sinceDate && isNaN(sinceDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: 'Formato de fecha inválido. Use ISO timestamp (ej: 2025-01-15T10:30:00.000Z)'
+        });
+        return;
+      }
+
+      // Obtener logs recientes usando el servicio
+      const logs = await activityLogService.getRecentActivityLogs(
+        sinceDate,
+        lastId,
+        userId,
+        limitNum
+      );
+
+      res.status(200).json({
+        success: true,
+        message: 'Logs recientes obtenidos exitosamente',
+        data: logs,
+        total: logs.length,
+        limit: limitNum,
+        filters: {
+          since: since ? sinceDate?.toISOString() : undefined,
+          last_id: lastId,
+          user_id: userId
+        }
+      });
+
+    } catch (error) {
+      console.error('Error al obtener logs recientes:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor al obtener logs recientes'
       });
     }
   }
