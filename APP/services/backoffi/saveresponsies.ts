@@ -418,6 +418,327 @@ export class SaveSurveyResponseService {
       throw new Error('Error interno del servidor al eliminar respuesta de encuesta');
     }
   }
+
+  /**
+   * Obtener estadísticas completas de una encuesta para dashboard
+   * Incluye: tasa de finalización, tiempo promedio, respuestas por fecha
+   */
+  public async getSurveyStatsDetailed(surveyId: string): Promise<{
+    total_responses: number;
+    unique_users: number;
+    completion_rate: number | null;
+    average_completion_time: number | null;
+    responses_by_date: Array<{
+      date: string;
+      count: number;
+    }>;
+    first_response_date: Date | null;
+    last_response_date: Date | null;
+  }> {
+    try {
+      // Total de respuestas
+      const totalResponses = await this.SurveyResponseModel.countDocuments({ survey_id: surveyId });
+
+      // Usuarios únicos que respondieron
+      const uniqueUsers = await this.SurveyResponseModel.distinct('user_id', { survey_id: surveyId });
+
+      // Obtener todas las respuestas para calcular tiempo promedio y respuestas por fecha
+      const responses = await this.SurveyResponseModel.find({ survey_id: surveyId })
+        .sort({ completed_at: 1 })
+        .select('completed_at created_at');
+
+      // Calcular tasa de finalización
+      // Buscar el alert_id asociado a la encuesta para obtener total de usuarios que recibieron el alert
+      let completionRate: number | null = null;
+      if (responses.length > 0) {
+        const firstResponse = await this.SurveyResponseModel.findOne({ survey_id: surveyId }).select('alert_id');
+        if (firstResponse && firstResponse.alert_id) {
+          try {
+            const NotificationResponseModel = mongoose.model('NotificationResponse');
+            const totalUsersReceived = await NotificationResponseModel.countDocuments({ 
+              alert_id: firstResponse.alert_id 
+            });
+            
+            if (totalUsersReceived > 0) {
+              completionRate = Math.round((uniqueUsers.length / totalUsersReceived) * 10000) / 100; // Porcentaje con 2 decimales (ej: 75.50)
+            }
+          } catch (error) {
+            // Si no se puede obtener, dejar como null
+            console.warn('No se pudo calcular completion_rate:', error);
+          }
+        }
+      }
+
+      // Calcular tiempo promedio de respuesta (diferencia entre created_at y completed_at)
+      let averageCompletionTime: number | null = null;
+      if (responses.length > 0) {
+        let totalTime = 0;
+        let validResponses = 0;
+        
+        responses.forEach((response: any) => {
+          if (response.created_at && response.completed_at) {
+            const timeDiff = new Date(response.completed_at).getTime() - new Date(response.created_at).getTime();
+            if (timeDiff > 0) {
+              totalTime += timeDiff;
+              validResponses++;
+            }
+          }
+        });
+        
+        if (validResponses > 0) {
+          averageCompletionTime = Math.round(totalTime / validResponses / 1000); // En segundos
+        }
+      }
+
+      // Respuestas por fecha
+      const responsesByDateMap: { [key: string]: number } = {};
+      let firstResponseDate: Date | null = null;
+      let lastResponseDate: Date | null = null;
+
+      responses.forEach((response: any) => {
+        if (response.completed_at) {
+          const date = new Date(response.completed_at);
+          const dateKey = date.toISOString().split('T')[0]; // YYYY-MM-DD
+          
+          responsesByDateMap[dateKey] = (responsesByDateMap[dateKey] || 0) + 1;
+          
+          if (!firstResponseDate || date < firstResponseDate) {
+            firstResponseDate = date;
+          }
+          if (!lastResponseDate || date > lastResponseDate) {
+            lastResponseDate = date;
+          }
+        }
+      });
+
+      const responsesByDate = Object.entries(responsesByDateMap)
+        .map(([date, count]) => ({ date, count }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      return {
+        total_responses: totalResponses,
+        unique_users: uniqueUsers.length,
+        completion_rate: completionRate,
+        average_completion_time: averageCompletionTime,
+        responses_by_date: responsesByDate,
+        first_response_date: firstResponseDate,
+        last_response_date: lastResponseDate
+      };
+    } catch (error) {
+      console.error('Error al obtener estadísticas detalladas de encuesta:', error);
+      throw new Error('Error interno del servidor al obtener estadísticas detalladas');
+    }
+  }
+
+  /**
+   * Obtener respuestas de encuesta con información completa del usuario
+   */
+  public async getSurveyResponsesWithUsers(surveyId: string, filters?: {
+    limit?: number;
+    skip?: number;
+  }): Promise<any[]> {
+    try {
+      const query: any = { survey_id: surveyId };
+      const limit = filters?.limit || 50;
+      const skip = filters?.skip || 0;
+
+      const responses = await this.SurveyResponseModel.find(query)
+        .sort({ completed_at: -1 })
+        .limit(limit)
+        .skip(skip)
+        .populate('user_id', 'username first_name last_name email phone_number')
+        .populate('alert_id', 'title message type');
+
+      return responses.map((response: any) => ({
+        _id: response._id,
+        survey_id: response.survey_id,
+        alert_id: response.alert_id,
+        user_id: response.user_id,
+        user_info: response.user_id ? {
+          username: response.user_id.username,
+          first_name: response.user_id.first_name,
+          last_name: response.user_id.last_name,
+          email: response.user_id.email,
+          phone_number: response.user_id.phone_number
+        } : null,
+        answers: response.answers,
+        completed_at: response.completed_at,
+        metadata: response.metadata,
+        created_at: response.created_at,
+        updated_at: response.updated_at
+      }));
+    } catch (error) {
+      console.error('Error al obtener respuestas con usuarios:', error);
+      throw new Error('Error interno del servidor al obtener respuestas con usuarios');
+    }
+  }
+
+  /**
+   * Obtener análisis de respuestas por tipo de pregunta
+   */
+  public async getSurveyAnswersAnalysis(surveyId: string): Promise<{
+    question_analysis: Array<{
+      question_id: string;
+      question: string;
+      question_type: string;
+      total_responses: number;
+      answer_distribution: any;
+      average_rating?: number;
+      text_responses?: string[];
+    }>;
+  }> {
+    try {
+      const responses = await this.SurveyResponseModel.find({ survey_id: surveyId })
+        .select('answers');
+
+      if (responses.length === 0) {
+        return { question_analysis: [] };
+      }
+
+      // Agrupar respuestas por pregunta
+      const questionMap: { [key: string]: {
+        question_id: string;
+        question: string;
+        question_type: string;
+        answers: any[];
+      } } = {};
+
+      responses.forEach((response: any) => {
+        if (response.answers && Array.isArray(response.answers)) {
+          response.answers.forEach((answerItem: any) => {
+            const qId = answerItem.question_id || 'unknown';
+            
+            if (!questionMap[qId]) {
+              questionMap[qId] = {
+                question_id: qId,
+                question: answerItem.question || '',
+                question_type: answerItem.question_type || 'text',
+                answers: []
+              };
+            }
+            
+            questionMap[qId].answers.push(answerItem.answer);
+          });
+        }
+      });
+
+      // Procesar cada pregunta según su tipo
+      const questionAnalysis = Object.values(questionMap).map((questionData) => {
+        const analysis: any = {
+          question_id: questionData.question_id,
+          question: questionData.question,
+          question_type: questionData.question_type,
+          total_responses: questionData.answers.length,
+          answer_distribution: {}
+        };
+
+        switch (questionData.question_type) {
+          case 'rating':
+            // Para rating: calcular promedio
+            const ratings = questionData.answers.filter(a => typeof a === 'number');
+            if (ratings.length > 0) {
+              const sum = ratings.reduce((acc: number, val: number) => acc + val, 0);
+              analysis.average_rating = Math.round((sum / ratings.length) * 100) / 100;
+              analysis.answer_distribution = {
+                min: Math.min(...ratings),
+                max: Math.max(...ratings),
+                average: analysis.average_rating
+              };
+            }
+            break;
+
+          case 'yes_no':
+            // Para yes_no: contar true/false
+            const yesCount = questionData.answers.filter((a: any) => a === true || a === 'true' || a === 'Sí').length;
+            const noCount = questionData.answers.length - yesCount;
+            analysis.answer_distribution = {
+              yes: yesCount,
+              no: noCount,
+              yes_percentage: Math.round((yesCount / questionData.answers.length) * 10000) / 100
+            };
+            break;
+
+          case 'multiple_choice':
+            // Para multiple_choice: contar opciones seleccionadas
+            const choiceCounts: { [key: string]: number } = {};
+            questionData.answers.forEach((answer: any) => {
+              if (Array.isArray(answer)) {
+                answer.forEach((choice: any) => {
+                  const choiceStr = String(choice);
+                  choiceCounts[choiceStr] = (choiceCounts[choiceStr] || 0) + 1;
+                });
+              } else {
+                const choiceStr = String(answer);
+                choiceCounts[choiceStr] = (choiceCounts[choiceStr] || 0) + 1;
+              }
+            });
+            analysis.answer_distribution = choiceCounts;
+            break;
+
+          case 'text':
+          default:
+            // Para text: obtener respuestas únicas (hasta 10)
+            const uniqueTexts = [...new Set(questionData.answers.map((a: any) => String(a)))];
+            analysis.text_responses = uniqueTexts.slice(0, 10);
+            analysis.answer_distribution = {
+              total_unique_responses: uniqueTexts.length,
+              sample_responses: uniqueTexts.slice(0, 5)
+            };
+            break;
+        }
+
+        return analysis;
+      });
+
+      return { question_analysis: questionAnalysis };
+    } catch (error) {
+      console.error('Error al obtener análisis de respuestas:', error);
+      throw new Error('Error interno del servidor al obtener análisis de respuestas');
+    }
+  }
+
+  /**
+   * Obtener estadísticas de todas las encuestas
+   */
+  public async getAllSurveysStats(): Promise<Array<{
+    survey_id: string;
+    total_responses: number;
+    unique_users: number;
+    completion_rate: number | null;
+    average_completion_time: number | null;
+    last_response_date: Date | null;
+  }>> {
+    try {
+      // Obtener todos los survey_id únicos
+      const surveyIds = await this.SurveyResponseModel.distinct('survey_id');
+
+      // Obtener estadísticas para cada encuesta
+      const statsPromises = surveyIds.map(async (surveyId: string) => {
+        const detailedStats = await this.getSurveyStatsDetailed(surveyId);
+        return {
+          survey_id: surveyId,
+          total_responses: detailedStats.total_responses,
+          unique_users: detailedStats.unique_users,
+          completion_rate: detailedStats.completion_rate,
+          average_completion_time: detailedStats.average_completion_time,
+          last_response_date: detailedStats.last_response_date
+        };
+      });
+
+      const allStats = await Promise.all(statsPromises);
+      
+      // Ordenar por fecha de última respuesta (más reciente primero)
+      return allStats.sort((a, b) => {
+        if (!a.last_response_date && !b.last_response_date) return 0;
+        if (!a.last_response_date) return 1;
+        if (!b.last_response_date) return -1;
+        return new Date(b.last_response_date).getTime() - new Date(a.last_response_date).getTime();
+      });
+    } catch (error) {
+      console.error('Error al obtener estadísticas de todas las encuestas:', error);
+      throw new Error('Error interno del servidor al obtener estadísticas de todas las encuestas');
+    }
+  }
 }
 
 // Exportar instancia singleton del servicio

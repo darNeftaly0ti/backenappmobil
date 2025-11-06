@@ -42,9 +42,13 @@ router.get('/notification-responses/:userId', notificationResponseController.get
 // IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas genéricas
 router.post('/survey-responses', saveSurveyResponseController.saveSurveyResponse); // POST /api/users/survey-responses
 router.get('/survey-responses/health', saveSurveyResponseController.healthCheck); // GET /api/users/survey-responses/health
+router.get('/survey-responses/stats/all', saveSurveyResponseController.getAllSurveysStats); // GET /api/users/survey-responses/stats/all (debe ir antes de /stats/:surveyId)
 router.get('/survey-responses/:surveyId/check/:userId', saveSurveyResponseController.checkUserResponse); // GET /api/users/survey-responses/:surveyId/check/:userId
 router.get('/survey-responses/:surveyId/user/:userId', saveSurveyResponseController.getSurveyResponseByUser); // GET /api/users/survey-responses/:surveyId/user/:userId
+router.get('/survey-responses/:surveyId/stats/detailed', saveSurveyResponseController.getSurveyStatsDetailed); // GET /api/users/survey-responses/:surveyId/stats/detailed (debe ir antes de /stats)
 router.get('/survey-responses/:surveyId/stats', saveSurveyResponseController.getSurveyStats); // GET /api/users/survey-responses/:surveyId/stats
+router.get('/survey-responses/:surveyId/responses-with-users', saveSurveyResponseController.getSurveyResponsesWithUsers); // GET /api/users/survey-responses/:surveyId/responses-with-users
+router.get('/survey-responses/:surveyId/analysis', saveSurveyResponseController.getSurveyAnswersAnalysis); // GET /api/users/survey-responses/:surveyId/analysis
 router.get('/survey-responses/user/:userId', saveSurveyResponseController.getUserSurveyResponses); // GET /api/users/survey-responses/user/:userId
 router.get('/survey-responses/:surveyId', saveSurveyResponseController.getSurveyResponses); // GET /api/users/survey-responses/:surveyId (genérica, debe ir al final)
 router.delete('/survey-responses/:responseId', saveSurveyResponseController.deleteSurveyResponse); // DELETE /api/users/survey-responses/:responseId
