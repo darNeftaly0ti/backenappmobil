@@ -7,6 +7,7 @@ import { createUserController } from '../controllers/backoffi/createuser';
 import { createAlertController } from '../controllers/backoffi/createalerts';
 import { saveSurveyResponseController } from '../controllers/backoffi/saveresponsies';
 import { notificationResponseController } from '../controllers/backoffi/notificationresponses';
+import { dailyActiveUsersController } from '../controllers/backoffi/dailyactiveusers';
 
 // Crear instancia del router
 const router = Router();
@@ -75,8 +76,13 @@ router.get('/activity-logs/user/:userId', activityLogController.getActivityLogsB
 router.get('/activity-logs/action/:action', activityLogController.getActivityLogsByAction);
 router.get('/activity-logs/severity/:severity', activityLogController.getActivityLogsBySeverity);
 router.get('/activity-logs/search/:searchText', activityLogController.searchActivityLogs);
-router.get('/activity-logs/:id', activityLogController.getActivityLogById);
 router.post('/activity-logs/cleanup', activityLogController.deleteOldLogs);
+
+// Rutas de Daily Active Users (DAU) - deben ir antes de las rutas genéricas /activity-logs/:id
+router.get('/activity-logs/daily-active-users/health', dailyActiveUsersController.healthCheck); // GET /api/users/activity-logs/daily-active-users/health
+router.get('/activity-logs/daily-active-users/detailed', dailyActiveUsersController.getDailyActiveUsersDetailed); // GET /api/users/activity-logs/daily-active-users/detailed?date=YYYY-MM-DD
+router.get('/activity-logs/daily-active-users', dailyActiveUsersController.getDailyActiveUsers); // GET /api/users/activity-logs/daily-active-users?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+router.get('/activity-logs/:id', activityLogController.getActivityLogById);
 
 // Rutas de SmartOLT (consumo)
 router.get('/smartolt/consumption/:userId', smartOLTController.getConsumption);
