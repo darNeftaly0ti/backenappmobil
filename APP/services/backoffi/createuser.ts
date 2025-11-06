@@ -170,9 +170,16 @@ export class CreateUserService {
       }
 
       // Normalizar ONU_sn: convertir cadenas vacías o solo espacios a null
+      // Si el frontend no envía ONU_sn, será undefined
+      // Si envía cadena vacía "", se normaliza a null
+      // Si envía solo espacios "   ", se normaliza a null
       const normalizedONUSn = userData.ONU_sn 
         ? (userData.ONU_sn.trim() || null)
         : null;
+
+      // Debug: Verificar qué valor tiene ONU_sn
+      console.log('ONU_sn recibido:', userData.ONU_sn);
+      console.log('ONU_sn normalizado:', normalizedONUSn);
 
       // Verificar si el usuario ya existe (por email o username)
       const existingUser = await this.UserModel.findOne({
@@ -222,13 +229,14 @@ export class CreateUserService {
         tags: userData.tags || []
       };
 
-      // Agregar campos de SmartOLT (normalizar ONU_sn vacío a null)
+      // Agregar campos de SmartOLT (normalizar ONU_sn vacío)
+      // IMPORTANTE: Si es null o vacío, NO incluir el campo (no establecer como null)
+      // Con sparse: true en el índice, omitir el campo permite múltiples null sin conflictos
       if (normalizedONUSn) {
         userObject.ONU_sn = normalizedONUSn;
-      } else {
-        // Si es null o vacío, no agregarlo o establecerlo como null explícitamente
-        userObject.ONU_sn = null;
       }
+      // Si es null, simplemente no incluimos el campo (undefined)
+      // Esto es compatible con sparse: true y permite múltiples usuarios sin ONU_sn
       if (userData.olt_name) {
         userObject.olt_name = userData.olt_name.trim();
       }
@@ -331,14 +339,32 @@ export class CreateUserService {
 
     } catch (error: any) {
       console.error('Error al crear usuario:', error);
+      console.error('Error completo:', JSON.stringify(error, null, 2));
 
       // Manejar errores específicos de MongoDB
       if (error.code === 11000) {
         // Error de duplicado (unique constraint)
-        const field = Object.keys(error.keyPattern)[0];
+        const field = Object.keys(error.keyPattern || {})[0];
+        const duplicateValue = error.keyValue ? error.keyValue[field] : 'valor desconocido';
+        
+        console.log('Campo duplicado:', field);
+        console.log('Valor duplicado:', duplicateValue);
+        
+        // Mensaje específico según el campo
+        let message = '';
+        if (field === 'email') {
+          message = 'Ya existe un usuario con ese correo electrónico';
+        } else if (field === 'username') {
+          message = 'Ya existe un usuario con ese nombre de usuario';
+        } else if (field === 'ONU_sn') {
+          message = 'Ya existe un usuario con ese ONU_sn';
+        } else {
+          message = `Ya existe un usuario con ese ${field}`;
+        }
+        
         return {
           success: false,
-          message: `Ya existe un usuario con ese ${field === 'email' ? 'correo electrónico' : field === 'username' ? 'nombre de usuario' : field}`,
+          message: message,
           error: error
         };
       }
