@@ -177,10 +177,6 @@ export class CreateUserService {
         ? (userData.ONU_sn.trim() || null)
         : null;
 
-      // Debug: Verificar qué valor tiene ONU_sn
-      console.log('ONU_sn recibido:', userData.ONU_sn);
-      console.log('ONU_sn normalizado:', normalizedONUSn);
-
       // Verificar si el usuario ya existe (por email o username)
       const existingUser = await this.UserModel.findOne({
         $or: [
@@ -209,6 +205,18 @@ export class CreateUserService {
             message: 'Ya existe un usuario con ese ONU_sn'
           };
         }
+      } else {
+        // Si ONU_sn es null/undefined, verificar si ya existe un usuario con ONU_sn: null
+        // Esto es necesario porque MongoDB puede tener problemas con múltiples null en índices sparse
+        const existingUserWithNullONU = await this.UserModel.findOne({
+          $or: [
+            { ONU_sn: null },
+            { ONU_sn: "" }
+          ]
+        });
+
+        // Si ya existe un usuario con ONU_sn null o vacío, simplemente no incluiremos el campo
+        // Esto evita el error de duplicado con el índice sparse
       }
 
       // Preparar datos del usuario con valores por defecto
@@ -230,13 +238,15 @@ export class CreateUserService {
       };
 
       // Agregar campos de SmartOLT (normalizar ONU_sn vacío)
-      // IMPORTANTE: Si es null o vacío, NO incluir el campo (no establecer como null)
+      // IMPORTANTE: Si es null o vacío, NO incluir el campo en absoluto
       // Con sparse: true en el índice, omitir el campo permite múltiples null sin conflictos
+      // Pero si ya existe un usuario con ONU_sn: null, MongoDB puede quejarse
+      // Por lo tanto, si es null, simplemente no establecemos el campo
       if (normalizedONUSn) {
         userObject.ONU_sn = normalizedONUSn;
       }
-      // Si es null, simplemente no incluimos el campo (undefined)
-      // Esto es compatible con sparse: true y permite múltiples usuarios sin ONU_sn
+      // Si es null, NO incluimos el campo en absoluto (undefined)
+      // Esto evita que Mongoose/MongoDB establezca null implícitamente
       if (userData.olt_name) {
         userObject.olt_name = userData.olt_name.trim();
       }
@@ -328,7 +338,30 @@ export class CreateUserService {
       };
 
       // Crear el usuario en la base de datos
+      // IMPORTANTE: Si ONU_sn es null, NO incluir el campo en absoluto
+      // Asegurarse explícitamente de que el campo no exista en el objeto
+      if (!normalizedONUSn && userObject.hasOwnProperty('ONU_sn')) {
+        delete userObject.ONU_sn;
+      }
+      
+      // Crear el documento sin el campo ONU_sn si es null
       const newUser = new this.UserModel(userObject);
+      
+      // Si ONU_sn es null, usar $unset en save() para asegurarnos de que no se incluya
+      const saveOptions: any = {};
+      if (!normalizedONUSn) {
+        // Usar lean() y luego insertOne directamente para evitar que Mongoose establezca null
+        const userDataToSave = { ...userObject };
+        delete userDataToSave.ONU_sn; // Asegurarse de que no esté presente
+        
+        const savedUser = await this.UserModel.create(userDataToSave);
+        return {
+          success: true,
+          user: savedUser,
+          message: 'Usuario creado exitosamente'
+        };
+      }
+      
       const savedUser = await newUser.save();
 
       return {
@@ -339,16 +372,11 @@ export class CreateUserService {
 
     } catch (error: any) {
       console.error('Error al crear usuario:', error);
-      console.error('Error completo:', JSON.stringify(error, null, 2));
 
       // Manejar errores específicos de MongoDB
       if (error.code === 11000) {
         // Error de duplicado (unique constraint)
         const field = Object.keys(error.keyPattern || {})[0];
-        const duplicateValue = error.keyValue ? error.keyValue[field] : 'valor desconocido';
-        
-        console.log('Campo duplicado:', field);
-        console.log('Valor duplicado:', duplicateValue);
         
         // Mensaje específico según el campo
         let message = '';
