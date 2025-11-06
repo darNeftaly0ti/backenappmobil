@@ -29,9 +29,8 @@ export const config = () => {
         'http://127.0.0.1:5173',
         'http://127.0.0.1:8080',
         
-        // TODO: Agregar aquí los dominios de producción cuando estén definidos
-        // Ejemplo: 'https://tu-dominio-frontend.com',
-        // Ejemplo: 'https://www.tu-dominio-frontend.com',
+        // Orígenes de producción
+        'https://conectat-analytics.vercel.app', // Dashboard de administración
       ]
     },
 
